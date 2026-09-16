@@ -1,6 +1,11 @@
+# the incubation breadcrumb — machine-local provenance, not source
 .claude/INCUBATED_BY
+
+# build output and deps
 node_modules/
 dist/
+web/tsconfig.tsbuildinfo
+
+# runtime state: this node's identity, its peers, its message log
 peers.json
 .fed-state.json
-web/tsconfig.tsbuildinfo

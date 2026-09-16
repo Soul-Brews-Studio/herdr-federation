@@ -1,0 +1,7 @@
+{
+  "node": "<this node's name — how peers will address it>",
+  "gossip": true,
+  "peers": [
+    { "name": "<peer name>", "url": "http://<peer address>:6750" }
+  ]
+}
