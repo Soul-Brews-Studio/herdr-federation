@@ -10,7 +10,9 @@ import { HeyBar } from "../components/HeyBar";
 import { Control, Watch, X } from "../components/Icons";
 import { CommandPalette } from "../components/CommandPalette";
 const FederationPanel = lazy(() => import("../components/FederationPanel").then((m) => ({ default: m.FederationPanel })));
+const SettingsPanel = lazy(() => import("../components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
 import { CallsRail } from "../components/CallsRail";
+import { useSettings } from "../settings";
 import { AgentMenu, type MenuTarget } from "../components/AgentMenu";
 
 type Tab = { member: Located; interactive: boolean };
@@ -28,18 +30,21 @@ export function Console({ status }: { status: Status | null }) {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [fedOpen, setFedOpen] = useState(false);
+  const [setOpen, setSetOpen] = useState(false);
   const [menu, setMenu] = useState<MenuTarget | null>(null);
+  const [settings, setSettings] = useSettings();
   // two renderers: a plain-text mirror, and the real terminal
-  const [mode, setMode] = useState<"text" | "terminal">(
-    () => (localStorage.getItem("fed.render") as "text" | "terminal") ?? "text",
-  );
+  const mode = settings.render;
+  const setMode = (render: "text" | "terminal") => setSettings({ render });
   const [full, setFull] = useState(false);
-
-  useEffect(() => localStorage.setItem("fed.render", mode), [mode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setFull(false);
+      if (e.key === "," && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setSetOpen((v) => !v);
+      }
       if (e.key === "f" && (e.metaKey || e.ctrlKey) && e.shiftKey) {
         e.preventDefault();
         setFull((v) => !v);
@@ -50,7 +55,15 @@ export function Console({ status }: { status: Status | null }) {
   }, []);
 
   function open(tab: Tab, push = true) {
-    setTabs((prev) => (prev.some((t) => tabKey(t) === tabKey(tab)) ? prev : [...prev, tab]));
+    // "window" means a real browser tab; the rest are tabs inside this page
+    if (push && settings.openIn === "window") {
+      window.open(routeOf(tab), "_blank", "noopener");
+      return;
+    }
+    setTabs((prev) => {
+      if (prev.some((t) => tabKey(t) === tabKey(tab))) return prev;
+      return settings.openIn === "replace" && push ? [tab] : [...prev, tab];
+    });
     setActive(tabKey(tab));
     if (push) history.pushState({}, "", routeOf(tab));
   }
@@ -94,6 +107,11 @@ export function Console({ status }: { status: Status | null }) {
           <FederationPanel status={status} onClose={() => setFedOpen(false)} />
         </Suspense>
       )}
+      {setOpen && (
+        <Suspense fallback={null}>
+          <SettingsPanel onClose={() => setSetOpen(false)} />
+        </Suspense>
+      )}
       <AgentMenu
         target={menu}
         onClose={() => setMenu(null)}
@@ -121,7 +139,8 @@ export function Console({ status }: { status: Status | null }) {
             <button onClick={() => setFedOpen(true)} className="text-faint hover:text-accent">
               federation · {status?.peers?.length ?? 0}
             </button>
-            <span className="ml-auto text-[#4b5261]">⌘K</span>
+            <button onClick={() => setSetOpen(true)} className="ml-auto text-faint hover:text-accent">settings</button>
+            <span className="text-[#4b5261]">⌘K</span>
           </>
         }
       />
@@ -208,7 +227,12 @@ export function Console({ status }: { status: Status | null }) {
                 <XtermView key={`x-${tabKey(current)}`} member={current.member} interactive className="h-full" />
               </Suspense>
             ) : (
-              <PaneView key={tabKey(current)} member={current.member} interactive={current.interactive} className="h-full" />
+              <PaneView
+                key={tabKey(current)}
+                member={current.member}
+                interactive={current.interactive || settings.typeInText}
+                className="h-full"
+              />
             )
           ) : (
             <div className="grid h-full place-content-center justify-items-center gap-2 p-6 text-center text-faint">
@@ -219,7 +243,7 @@ export function Console({ status }: { status: Status | null }) {
           )}
         </div>
 
-        <CallsRail status={status} />
+        {settings.showRail && <CallsRail status={status} />}
 
         <HeyBar status={status} />
       </main>

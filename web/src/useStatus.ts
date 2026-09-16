@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { useSettings } from "./settings";
 import type { Status } from "./types";
 
 /** One poller, shared by both pages. A relay restart just skips a tick. */
-export function useStatus(intervalMs = 2000) {
+export function useStatus(override?: number) {
+  const [settings] = useSettings();
+  const intervalMs = override ?? settings.pollMs;
   const [status, setStatus] = useState<Status | null>(null);
 
   useEffect(() => {

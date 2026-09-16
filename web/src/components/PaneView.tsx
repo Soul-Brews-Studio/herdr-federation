@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Located, PaneServerMessage } from "../types";
+import { useSettings } from "../settings";
 
 type Props = {
   member: Located;
@@ -26,12 +27,13 @@ const SPECIAL: Record<string, string> = {
  * no ttyd and no third-party renderer. The server polls `pane.read` and only
  * ships a frame when the revision moves, so many of these are cheap.
  */
-const ZOOM_KEY = "fed.pane.zoom.v2";
-
 export function PaneView({ member, interactive = false, dense = false, className = "" }: Props) {
   const [text, setText] = useState("");
-  // one type size for every pane, remembered — a wall of tiles reads as one surface
-  const [zoom, setZoom] = useState(() => Number(localStorage.getItem(dense ? ZOOM_KEY + ".dense" : ZOOM_KEY)) || (dense ? 11 : 13));
+  // one type size for every pane of this kind, set in settings (⌘,)
+  const [settings, setSettings] = useSettings();
+  const zoom = dense ? settings.zoomDense : settings.zoom;
+  const setZoom = (fn: (z: number) => number) =>
+    setSettings(dense ? { zoomDense: fn(settings.zoomDense) } : { zoom: fn(settings.zoom) });
   const [state, setState] = useState<"opening" | "live" | "lost">("opening");
   const [error, setError] = useState("");
   const ws = useRef<WebSocket | null>(null);
@@ -63,10 +65,6 @@ export function PaneView({ member, interactive = false, dense = false, className
     const el = body.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [text]);
-
-  useEffect(() => {
-    localStorage.setItem(dense ? ZOOM_KEY + ".dense" : ZOOM_KEY, String(zoom));
-  }, [zoom, dense]);
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (!interactive || ws.current?.readyState !== WebSocket.OPEN) return;

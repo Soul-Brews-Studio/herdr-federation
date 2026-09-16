@@ -87,6 +87,16 @@ export function AgentMenu({ target, onClose, onWatch, onControl, onAddToSquad }:
         <Control className="w-[13px] h-[13px] text-faint" />
         take control
       </button>
+      <button
+        className={item}
+        onClick={() => {
+          window.open(`/t/${encodeURIComponent(m.node)}/${encodeURIComponent(m.pane)}/ro`, "_blank", "noopener");
+          onClose();
+        }}
+      >
+        <span className="w-[13px] text-center text-faint">↗</span>
+        open in a browser tab
+      </button>
       {onAddToSquad && (
         <button className={item} onClick={() => (onAddToSquad(m), onClose())}>
           <span className="w-[13px] text-center text-faint">+</span>
