@@ -1,0 +1,6 @@
+.claude/INCUBATED_BY
+node_modules/
+dist/
+peers.json
+.fed-state.json
+web/tsconfig.tsbuildinfo
