@@ -13,7 +13,8 @@ import type { Pane, Tab, Workspace } from "./protocol";
 import type {
   AdminState, AdoptRequest, AuditEntry, AuditStep, BroadcastRequest, BroadcastResult, CallsResponse,
   CreateInviteRequest, CreateInviteResponse, ErrorResponse, FedRedeemRequest, FedRedeemResponse,
-  FedHeyRequest, FedRelayRequest, FedState, HeyRequest, HeyResponse, IngestRequest, IngestResponse,
+  FedHeyRequest, FedPaneRelayRequest, FedPaneRequest, FedPaneResponse, FedRelayRequest, FedState,
+  HeyRequest, HeyResponse, IngestRequest, IngestResponse,
   Invite, InvitePreview, RelayedPeer,
   InvitesResponse, JoinRequest, JoinResponse, KickRequest, KickResponse, LeaveRequest,
   LeaveResponse, Member, PaneClientMessage, PaneServerMessage, RedeemRequest, RedeemResponse,
@@ -279,6 +280,70 @@ const server = Bun.serve<PaneSocket, {}>({
         return json<HeyResponse>({ delivered: "pane", to: t.handle, pane: t.pane });
       } catch (err) {
         return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 404);
+      }
+    }
+    /**
+     * A peer reading one of OUR panes. Same gate as /api/fed/hey, and the same
+     * `source: "visible"` rule the console path uses — `recent` is serviced by
+     * driving the pane's own mouse-scroll, so a background poll would scroll the
+     * operator's real terminal. A read that moves the thing being read is not a
+     * read, so it is not configurable here either.
+     */
+    if (path === "/api/fed/pane" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
+      const { pane, lines } = (await req.json()) as FedPaneRequest;
+      if (!pane || !validPane(pane)) return json<ErrorResponse>({ error: "bad pane id" }, 400);
+      try {
+        const n = Math.min(Math.max(Number(lines) || 40, 1), 400);
+        const read = await herdr.readPane(pane, { source: "visible", lines: n });
+        return json<FedPaneResponse>({ node: config.node, pane, text: typeof read === "string" ? read : String((read as { text?: string })?.text ?? ""), lines: n });
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /** A spoke asking us, its hub, to read a pane on one of OUR direct peers. One hop. */
+    if (path === "/api/fed/pane-relay" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
+      const { node, pane, lines } = (await req.json()) as FedPaneRelayRequest;
+      if (!node || !pane) return json<ErrorResponse>({ error: "need node and pane" }, 400);
+      if (!fed.peer(node)) return json<ErrorResponse>({ error: `${node} is not a direct peer of ${config.node} — no route` }, 404);
+      try {
+        const res = await fed.call(node, "/api/fed/pane", { method: "POST", body: JSON.stringify({ pane, lines }) });
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<FedPaneResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /**
+     * The console asking THIS node to read a pane anywhere in the federation.
+     * Ungated like the rest of the console surface; it routes by node, so a
+     * client never has to know whether a node is direct or behind a hub.
+     */
+    if (path === "/api/fleet/pane" && req.method === "POST") {
+      const { node, pane, lines } = (await req.json()) as FedPaneRelayRequest;
+      if (!node || !pane) return json<ErrorResponse>({ error: "need node and pane" }, 400);
+      try {
+        if (node === config.node) {
+          if (!validPane(pane)) return json<ErrorResponse>({ error: "bad pane id" }, 400);
+          const n = Math.min(Math.max(Number(lines) || 40, 1), 400);
+          const read = await herdr.readPane(pane, { source: "visible", lines: n });
+          return json<FedPaneResponse>({ node, pane, text: typeof read === "string" ? read : String((read as { text?: string })?.text ?? ""), lines: n });
+        }
+        let res: Response;
+        if (fed.peer(node)) {
+          res = await fed.call(node, "/api/fed/pane", { method: "POST", body: JSON.stringify({ pane, lines }) });
+        } else if (fed.relayed[node]) {
+          res = await fed.call(fed.relayed[node].via, "/api/fed/pane-relay", { method: "POST", body: JSON.stringify({ node, pane, lines }) });
+        } else {
+          return json<ErrorResponse>({ error: `no route to ${node} — not a peer, and no hub relays it` }, 404);
+        }
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<FedPaneResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
       }
     }
     /**

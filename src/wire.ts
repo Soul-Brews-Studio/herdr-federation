@@ -200,6 +200,12 @@ export type FedHeyRequest = { to: string; text: string };
 /** POST /api/fed/relay — forward to one of MY DIRECT peers; caller is an authenticated spoke */
 export type FedRelayRequest = { node: string; to: string; text: string };
 
+/** POST /api/fed/pane — read one of MY panes; caller is an authenticated peer */
+export type FedPaneRequest = { pane: string; lines?: number };
+/** POST /api/fed/pane-relay — read a pane on one of MY DIRECT peers, for a spoke */
+export type FedPaneRelayRequest = { node: string; pane: string; lines?: number };
+export type FedPaneResponse = { node: string; pane: string; text: string; lines: number };
+
 /** GET /api/fed/state · POST /api/fed/ingest */
 export type FedState = {
   node: string;
