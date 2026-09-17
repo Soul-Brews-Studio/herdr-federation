@@ -267,8 +267,12 @@ export class Members {
 
   #upsert(member: StoredMember) {
     const at = this.#members.findIndex((m) => m.node === member.node);
-    if (at >= 0) this.#members[at] = { ...this.#members[at], ...member };
-    else this.#members.push(member);
+    if (at >= 0) {
+      const merged = { ...this.#members[at], ...member };
+      // a real handshake retires the legacy flag: the record now has a proven key
+      if (member.pubkey) delete merged.legacy;
+      this.#members[at] = merged;
+    } else this.#members.push(member);
     void this.save();
   }
 

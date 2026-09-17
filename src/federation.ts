@@ -74,11 +74,21 @@ export class Federation {
     this.#peers = [...config.peers];
   }
 
-  /** Register a peer we have just completed a handshake with. */
+  /**
+   * Register a peer we have just completed a handshake with.
+   *
+   * A node advertises ONE address, and that is not always the best one we have.
+   * m5 advertises its NetBird IP, but m5 runs NetBird in userspace mode, so
+   * inbound to that IP is blackholed — white can only reach m5 over the LAN.
+   * Taking the advertised address unconditionally therefore replaced white's
+   * working URL with an unreachable one and killed a link that was fine.
+   * So: an address we already have and that is currently healthy wins.
+   */
   addPeer(name: string, url: string) {
     const existing = this.#peers.find((p) => p.name === name);
-    if (existing) existing.url = url;
-    else this.#peers.push({ name, url });
+    if (existing) {
+      if (!existing.url || !this.health[name]?.ok) existing.url = url;
+    } else this.#peers.push({ name, url });
     this.config.peers = this.#peers.map(({ name: n, url: u }) => ({ name: n, url: u }));
   }
 

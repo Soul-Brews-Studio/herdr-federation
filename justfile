@@ -34,10 +34,20 @@ start:
 # build, then run
 up: build start
 
+# Kill by LISTENER, never by command-line pattern. `pkill -f "bun src/server.ts"`
+# also matches the shell running THIS recipe, so `just start` killed its own
+# invocation: on Linux stop died with signal 9 and the replacement server then
+# hit EADDRINUSE against the instance it was supposed to have replaced.
 stop:
-    @pkill -9 -f "bun run src/server.ts" 2>/dev/null || true
-    @pkill -9 -f "bun src/server.ts" 2>/dev/null || true
-    @sleep 1
+    #!/usr/bin/env bash
+    set -uo pipefail
+    pids=$(lsof -nP -iTCP:{{ port }} -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -z "${pids:-}" ]; then
+        pids=$(ss -lntp 2>/dev/null | grep -E "[:.]{{ port }}[[:space:]]" | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u || true)
+    fi
+    [ -n "${pids:-}" ] && kill -9 $pids 2>/dev/null
+    sleep 1
+    exit 0
 
 # is exactly one node listening, and what does it see?
 status:
@@ -103,9 +113,11 @@ deploy host:
     #!/usr/bin/env bash
     set -euo pipefail
     just build
-    ssh {{ host }} 'mkdir -p ~/herdr-federation/src ~/herdr-federation/web'
+    ssh {{ host }} 'mkdir -p ~/herdr-federation/src ~/herdr-federation/web ~/herdr-federation/bin'
     rsync -az src/ {{ host }}:~/herdr-federation/src/
     rsync -az --delete web/dist/ {{ host }}:~/herdr-federation/web/dist/
+    # the justfile shells out to these — deploying without them breaks every recipe there
+    rsync -az bin/ {{ host }}:~/herdr-federation/bin/
     rsync -az justfile {{ host }}:~/herdr-federation/justfile
     ssh {{ host }} 'test -f ~/herdr-federation/peers.json' \
         || echo "  no peers.json on {{ host }} yet — create one from peers.example.json"
