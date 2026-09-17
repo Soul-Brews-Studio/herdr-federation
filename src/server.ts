@@ -685,8 +685,25 @@ const server = Bun.serve<PaneSocket, {}>({
       const file = Bun.file(join(DIST, rel));
       if (await file.exists()) return new Response(file);
     }
+    // The API is fully up at this point — only the static console is missing, and
+    // the fix depends on how this node was started. `bunx github:...` gets a tree
+    // with no web/dist (build output is gitignored), and its cache directory is
+    // not somewhere to tell people to run a build, so say which case they are in
+    // rather than printing one instruction that is wrong half the time.
+    const installed = !DIST.startsWith(process.cwd());
     return new Response(
-      "the console is not built yet — run `bun install && bun run build` in web/",
+      [
+        "the console is not built — the API on this port is working.",
+        "",
+        installed
+          ? "  this node is running from an installed package, so build output was not shipped with it:"
+          : "  from a checkout:",
+        installed
+          ? "    bunx herdr-federation            (npm release ships the built console)"
+          : "    cd web && bun install && bun run build",
+        "",
+        `  looked in: ${DIST}`,
+      ].join("\n"),
       { status: 503, headers: { "content-type": "text/plain" } },
     );
   },

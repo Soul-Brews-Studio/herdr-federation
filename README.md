@@ -67,7 +67,32 @@ large `lines` is, and immune by construction.
 The catch that makes `visible` look broken: its `revision` never moves (it is always `0`), so a
 stream that only ships when the revision changes shows a permanently frozen pane. Diff the text.
 
-## Run it
+## Install and run
+
+```sh
+bunx herdr-federation                # one command — seeds config, mints identity, starts
+```
+
+**Bun only — `npx` cannot run this.** The server is Bun-native (`Bun.serve`,
+`Bun.file`, `Bun.write`, `import.meta.dir`), so Node has nothing to execute. Get Bun
+with `curl -fsSL https://bun.sh/install | bash`.
+
+Installed, state lives in `$XDG_STATE_HOME/herdr-federation` (override with
+`$HERDR_FED_HOME`), not beside the package — a bunx cache is not writable and an
+npm install belongs to `node_modules`. First run writes a `peers.json` naming this
+host and joins nothing; you federate by pasting an invite link into the console.
+
+Straight from source, no registry:
+
+```sh
+bunx github:Soul-Brews-Studio/herdr-federation
+```
+
+This works today and serves the **API only**: build output is gitignored, so the
+GitHub tarball carries no `web/dist` and `/` answers 503 with which case you are in.
+The npm release ships the built console.
+
+From a checkout, unchanged — state stays in the repo directory:
 
 ```sh
 cp peers.example.json peers.json     # node name + peers
