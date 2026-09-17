@@ -44,4 +44,33 @@ if (!existsSync(process.env.FED_CONFIG)) {
 // into real terminals.
 process.env.FED_HOST ??= "127.0.0.1";
 
+// Build the console once if it is missing. `bunx github:…` and `npx github:…`
+// hand us the git tree, and build output is gitignored, so the tarball has the
+// source of the console and none of its output — the API came up and `/` answered
+// 503. The cache directory those installs land in is writable, and Bun is here
+// because this file is running under it, so build in place, once. An npm release
+// ships web/dist and never enters this branch. `FED_NO_BUILD=1` opts out for a
+// supervisor that would rather fail than compile.
+{
+  const pkg = join(import.meta.dir, "..");
+  const web = join(pkg, "web");
+  const built = join(web, "dist", "index.html");
+  if (!existsSync(built) && existsSync(join(web, "package.json")) && !process.env.FED_NO_BUILD) {
+    console.log(`[fed] console not built — building once in ${web} (~10s)`);
+    const bun = process.execPath;
+    const run = (args: string[]) => {
+      const r = Bun.spawnSync([bun, ...args], { cwd: web, stdout: "inherit", stderr: "inherit" });
+      if (r.exitCode !== 0) throw new Error(`${args.join(" ")} exited ${r.exitCode}`);
+    };
+    try {
+      run(["install", "--frozen-lockfile"]);
+      run(["run", "build"]);
+      console.log(`[fed] console built`);
+    } catch (err) {
+      // The API does not need the console; say what happened and start anyway.
+      console.error(`[fed] console build failed: ${String(err).replace(/^Error:\s*/, "")} — starting without it`);
+    }
+  }
+}
+
 await import("../src/server.ts");
