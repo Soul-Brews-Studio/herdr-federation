@@ -103,6 +103,14 @@ export type Stats = {
   pullErrors?: number;
   pulled: number;
   errors: number;
+  /**
+   * Lifetime bytes on the wire, request bodies out and response bodies in.
+   * Monotonic counters like the rest: a UI derives a rate from two samples.
+   * Bodies only — headers and TLS are not counted, so this is the payload
+   * rate, not what a network interface would show.
+   */
+  bytesOut?: number;
+  bytesIn?: number;
   startedAt: string;
 };
 

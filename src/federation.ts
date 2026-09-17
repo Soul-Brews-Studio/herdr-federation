@@ -86,7 +86,7 @@ export class Federation {
    * peers have nothing new. Printing "pushed 1143 · pulled 0" side by side read
    * as a one-way failure when nothing was wrong — hence the separate pullOk.
    */
-  stats = { pushed: 0, pushErrors: 0, pullOk: 0, pullErrors: 0, pulled: 0, errors: 0, startedAt: new Date().toISOString() };
+  stats = { pushed: 0, pushErrors: 0, pullOk: 0, pullErrors: 0, pulled: 0, errors: 0, bytesOut: 0, bytesIn: 0, startedAt: new Date().toISOString() };
 
   /** what each peer reports about its own membership — read-only, for the mesh view */
   peerFederated: Record<string, MemberRecord[]> = {};
@@ -288,13 +288,13 @@ export class Federation {
     await Promise.all(
       this.#peers.map(async (peer) => {
         try {
-          const res = await this.#fetch(peer, "/api/fed/ingest", {
-            method: "POST",
-            // introduce ourselves, so a peer that cannot reach back still knows we exist
-            body: JSON.stringify({ messages: mine.slice(-100), from: { node: this.config.node, url: this.advertised } }),
-          });
+          // introduce ourselves, so a peer that cannot reach back still knows we exist
+          const body = JSON.stringify({ messages: mine.slice(-100), from: { node: this.config.node, url: this.advertised } });
+          const res = await this.#fetch(peer, "/api/fed/ingest", { method: "POST", body });
           if (!res.ok) throw new Error(`${res.status}`);
           this.stats.pushed++;
+          this.stats.bytesOut += Buffer.byteLength(body);
+          this.stats.bytesIn += Buffer.byteLength(await res.text());
           this.#mark(peer.name, true);
         } catch (err) {
           this.stats.pushErrors++;
@@ -312,7 +312,10 @@ export class Federation {
         try {
           const res = await this.#fetch(peer, "/api/fed/state");
           if (!res.ok) throw new Error(`${res.status}`);
-          const state = (await res.json()) as {
+          // text first, so the byte count is what actually crossed the wire
+          const raw = await res.text();
+          this.stats.bytesIn += Buffer.byteLength(raw);
+          const state = JSON.parse(raw) as {
             node?: string;
             messages?: FedMessage[];
             members?: PeerMember[];

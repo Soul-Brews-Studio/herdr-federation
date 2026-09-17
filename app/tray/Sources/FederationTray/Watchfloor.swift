@@ -74,11 +74,16 @@ struct Row: View {
             Spark(series: series, tint: tint).frame(maxWidth: .infinity)
             Text(String(format: "%.1f/min", series.perMinute))
                 .font(.system(size: 11, design: .monospaced)).monospacedDigit()
-                .foregroundStyle(.secondary).frame(width: 66, alignment: .trailing)
+                .foregroundStyle(.secondary).frame(width: 60, alignment: .trailing)
+            // payload bytes, not what an interface counter shows — headers and
+            // TLS are not in it. Nodes older than this field report 0 B/s.
+            Text(rate(series.bytesPerSec))
+                .font(.system(size: 11, design: .monospaced)).monospacedDigit()
+                .foregroundStyle(.tertiary).frame(width: 64, alignment: .trailing)
             Text("\(series.errors) err")
                 .font(.system(size: 11, design: .monospaced)).monospacedDigit()
                 .foregroundStyle(series.errors > 0 ? Color.red : .secondary)
-                .frame(width: 62, alignment: .trailing)
+                .frame(width: 48, alignment: .trailing)
         }
     }
 }
