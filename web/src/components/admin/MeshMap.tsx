@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { AdminState, FedEdge, KnownNode, Member } from "../../types";
+import type { AdminState, FedEdge, KnownNode, Member, RelayedPeer } from "../../types";
 
 /**
  * The federation, drawn.
@@ -21,7 +21,9 @@ const R = 150;        // ring radius
 const SIZE = 420;     // viewBox is square; the ring is centred in it
 const C = SIZE / 2;
 
-type Placed = { edge?: FedEdge; heard?: KnownNode; x: number; y: number; label: string };
+type Placed = { edge?: FedEdge; heard?: KnownNode; relayed?: RelayedPeer; x: number; y: number; label: string };
+/** relayed nodes hang off their hub, one step further out */
+const R2 = R + 62;
 
 const DOT: Record<string, string> = {
   working: "text-ok",
@@ -108,7 +110,20 @@ export function MeshMap({ state }: { state: AdminState }) {
       return { ...n, x: C + Math.cos(angle) * R, y: C + Math.sin(angle) * R };
     });
 
-  const sel = around.find((n) => n.label === picked);
+  // Nodes we only see through a hub sit beyond that hub, fanned out a little so
+  // two behind the same hub do not overlap. They are not our edges — no arrow,
+  // no reciprocity — just what the hub says it holds.
+  const relayedList = Object.entries(state.relayed ?? {});
+  const beyond: (Placed & { hub: Placed })[] = [];
+  for (const hub of around) {
+    const mine = relayedList.filter(([, r]) => r.via === hub.label);
+    mine.forEach(([name, r], i) => {
+      const base = Math.atan2(hub.y - C, hub.x - C);
+      const angle = base + (i - (mine.length - 1) / 2) * 0.42;
+      beyond.push({ relayed: r, label: name, hub, x: C + Math.cos(angle) * R2, y: C + Math.sin(angle) * R2 });
+    });
+  }
+  const sel = around.find((n) => n.label === picked) ?? beyond.find((n) => n.label === picked);
   const mutual = edges.filter((e) => e.mutual).length;
   const stale = edges.filter((e) => e.stale).length;
 
@@ -141,6 +156,11 @@ export function MeshMap({ state }: { state: AdminState }) {
             );
           })}
 
+          {beyond.map((n) => (
+            <line key={`r-${n.label}`} x1={n.hub.x} y1={n.hub.y} x2={n.x} y2={n.y}
+              stroke="var(--color-faint)" strokeWidth={1.2} strokeDasharray="2 4" opacity={0.7} />
+          ))}
+
           <circle cx={C} cy={C} r={30} fill="var(--color-panel)" stroke="var(--color-accent)" strokeWidth={2} />
           <text x={C} y={C - 2} textAnchor="middle" fill="var(--color-fg)" className="font-mono text-[12px] font-semibold">
             {state.node}
@@ -166,6 +186,19 @@ export function MeshMap({ state }: { state: AdminState }) {
               </text>
             </g>
           ))}
+          {beyond.map((n) => (
+            <g key={n.label} onClick={() => setPicked(n.label === picked ? null : n.label)} className="cursor-pointer">
+              <circle cx={n.x} cy={n.y} r={20} fill="var(--color-panel)"
+                stroke={n.relayed?.ok === false ? "var(--color-bad)" : "var(--color-faint)"}
+                strokeWidth={n.label === picked ? 2.5 : 1.2} strokeDasharray="3 3" />
+              <text x={n.x} y={n.y - 1} textAnchor="middle" fill="var(--color-fg)" className="font-mono text-[9px]">
+                {n.label.length > 8 ? `${n.label.slice(0, 7)}…` : n.label}
+              </text>
+              <text x={n.x} y={n.y + 9} textAnchor="middle" fill="var(--color-faint)" className="font-mono text-[8px]">
+                via {n.hub.label}
+              </text>
+            </g>
+          ))}
         </svg>
 
         <div className="flex flex-wrap gap-x-3 gap-y-1 px-2 pb-1 text-[11px] text-faint">
@@ -174,6 +207,7 @@ export function MeshMap({ state }: { state: AdminState }) {
           <span><span className="text-warn">←</span> they hold us</span>
           <span><span className="text-warn">⇠⇢</span> stale</span>
           <span><span className="text-live">··</span> heard, never joined</span>
+          {beyond.length > 0 && <span><span className="text-faint">◌</span> seen through a hub</span>}
         </div>
       </section>
 
@@ -243,6 +277,20 @@ export function MeshMap({ state }: { state: AdminState }) {
                 {sel.edge.stale && <span className="text-warn"> · stale</span>}
               </div>
               <Agents panes={state.peerPanes?.[sel.label] ?? []} empty="nothing published" />
+            </div>
+          </div>
+        )}
+
+        {sel?.relayed && (
+          <div className="grid gap-3 px-3 py-3">
+            <div className="text-[11px] text-faint">
+              seen through <b className="text-fg">{(sel as Placed & { hub: Placed }).hub.label}</b> — we hold no link to {sel.label}.
+              {sel.relayed.ok === false ? ` The hub's own link to it is failing (${sel.relayed.consecutive ?? 0} in a row).` : ` Hub last reached it ${ago(sel.relayed.lastOkAt)}.`}
+              {" "}Messages route through the hub; a live pane preview needs a direct invite.
+            </div>
+            <div>
+              <div className="pb-1 text-[11px] tracking-[.08em] text-faint">agents on {sel.label}, as the hub last saw them</div>
+              <Agents panes={sel.relayed.members ?? []} empty="nothing published" />
             </div>
           </div>
         )}

@@ -182,11 +182,14 @@ struct Watchfloor: View {
 
     private var peers: some View {
         VStack(alignment: .leading, spacing: 3) {
-            header("PEERS — links this node keeps", right: "\((w.status?.peers ?? []).count)")
-            if (w.status?.peers ?? []).isEmpty {
+            let all = w.status?.peers ?? []
+            let direct = all.filter { $0.via == nil }
+            let relayed = all.filter { $0.via != nil }
+            header("PEERS — links this node keeps", right: "\(direct.count)")
+            if direct.isEmpty {
                 Text("none — create an invite").font(.system(size: 11)).foregroundStyle(.tertiary)
             }
-            ForEach(w.status?.peers ?? [], id: \.name) { p in
+            ForEach(direct, id: \.name) { p in
                 let fails = p.consecutive ?? 0
                 HStack(spacing: 6) {
                     Text(fails == 0 ? "●" : "○").foregroundStyle(fails == 0 ? Color.green : .red)
@@ -194,6 +197,20 @@ struct Watchfloor: View {
                     Spacer()
                     Text(fails == 0 ? "ok \(ago(p.lastSeen))" : "\(fails) fails")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                }
+                // what this hub lets us see — not our link, so it never moves the verdict
+                ForEach(relayed.filter { $0.via == p.name }, id: \.name) { r in
+                    let rf = r.consecutive ?? 0
+                    HStack(spacing: 6) {
+                        Text("◌").foregroundStyle(.tertiary)
+                        Text(rf == 0 ? "●" : "○").foregroundStyle(rf == 0 ? Color.green.opacity(0.7) : .red.opacity(0.7))
+                        Text(r.name).font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("via \(p.name)").font(.system(size: 10)).foregroundStyle(.tertiary)
+                        Spacer()
+                        Text(rf == 0 ? "hub ok \(ago(r.lastOkAt))" : "hub: \(rf) fails")
+                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
+                    }
+                    .padding(.leading, 14)
                 }
             }
         }

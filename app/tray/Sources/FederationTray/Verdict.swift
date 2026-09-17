@@ -43,7 +43,9 @@ struct Verdict {
         if let offline { return Verdict(level: .down, detail: "this node: \(offline)", peer: nil) }
         guard let status else { return Verdict(level: .down, detail: "no reply", peer: nil) }
 
-        let peers = status.peers ?? []
+        // Only links THIS node keeps. A node seen through a hub carries the hub's
+        // health for that link, and the hub's problem is not our link being down.
+        let peers = (status.peers ?? []).filter { $0.via == nil }
         if peers.isEmpty {
             // Honest: not healthy, just nothing to be healthy about.
             return Verdict(level: .none, detail: "no peers — create an invite", peer: nil)
