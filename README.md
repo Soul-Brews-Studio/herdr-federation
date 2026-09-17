@@ -70,12 +70,16 @@ stream that only ships when the revision changes shows a permanently frozen pane
 ## Install and run
 
 ```sh
-bunx herdr-federation                # one command — seeds config, mints identity, starts
+npx  herdr-federation                # one command — seeds config, mints identity, starts
+bunx herdr-federation                # same, if you already have Bun
 ```
 
-**Bun only — `npx` cannot run this.** The server is Bun-native (`Bun.serve`,
-`Bun.file`, `Bun.write`, `import.meta.dir`), so Node has nothing to execute. Get Bun
-with `curl -fsSL https://bun.sh/install | bash`.
+**The server is Bun-native** (`Bun.serve` and its WebSocket upgrade, `Bun.file`,
+`Bun.write`), and Node has no built-in WebSocket server, so `npx` runs a launcher, not
+a Node port: it finds Bun and hands over. Bun is an *optional* dependency, so npm
+installs it automatically on supported platforms and the launcher falls back to one
+already on the machine; with none at all it says exactly that and how to get one
+(`curl -fsSL https://bun.sh/install | bash`).
 
 Installed, state lives in `$XDG_STATE_HOME/herdr-federation` (override with
 `$HERDR_FED_HOME`), not beside the package — a bunx cache is not writable and an
@@ -108,8 +112,16 @@ cd .. && bun run src/server.ts       # http://127.0.0.1:6750
 | `FED_PANE_MS` | `700` | pane poll interval |
 | `FED_ADVERTISE` | — | the address peers should use; without it this node cannot issue a working invite |
 | `FED_ALLOW_LEGACY` | `1` | accept peers that have no member token — **turn this off once every peer is re-invited** |
+| `FED_LOG` | `access` | one line per request: time, status, method, path, ms. `debug` adds content-type and every WebSocket open/close; `off` silences it |
+| `HERDR_FED_HOME` | `$XDG_STATE_HOME/herdr-federation` | where an *installed* node keeps its four state files; a checkout uses its own directory |
 | `FED_IDENTITY` / `FED_MEMBERS` | `./.fed-identity.json` / `./.fed-members.json` | private key, and the membership store (both gitignored) |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | the one dependency |
+
+A node **refuses to start when its port already answers**. Bun shares the socket rather
+than failing on a second bind, so two nodes on `:6750` both accept and every call lands
+on whichever got there first — measured: a second node started from a bunx cache
+reported `peers: 0` while the real node beside it held three healthy links. Use
+`FED_PORT` for a second node, or stop the first.
 
 ## For an AI agent
 

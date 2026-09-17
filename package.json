@@ -1,17 +1,42 @@
 {
   "name": "herdr-federation",
   "version": "26.9.18-alpha.17",
-  "description": "A federation of Herdr machines with one console — watch any agent's pane, type into it, and message a squad across machines.",
+  "description": "A federation of Herdr machines with one console \u2014 watch any agent's pane, type into it, and message a squad across machines.",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/Soul-Brews-Studio/herdr-federation.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Soul-Brews-Studio/herdr-federation.git"
+  },
   "homepage": "https://github.com/Soul-Brews-Studio/herdr-federation#readme",
-  "bin": { "herdr-federation": "./bin/herdr-federation.ts" },
+  "bin": {
+    "herdr-federation": "./bin/npx-herdr-federation.mjs",
+    "herdr-federation-bun": "./bin/herdr-federation.ts"
+  },
   "type": "module",
-  "files": ["bin/", "src/", "web/dist/", "peers.example.json", "README.md"],
-  "engines": { "bun": ">=1.1.0" },
+  "files": [
+    "bin/",
+    "src/",
+    "web/dist/",
+    "peers.example.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18",
+    "bun": ">=1.1.0"
+  },
   "scripts": {
     "build": "cd web && bun install --frozen-lockfile && bun run build",
     "prepublishOnly": "bun run build"
   },
-  "keywords": ["herdr", "tmux", "agents", "federation", "terminal", "claude-code"]
+  "keywords": [
+    "herdr",
+    "tmux",
+    "agents",
+    "federation",
+    "terminal",
+    "claude-code"
+  ],
+  "optionalDependencies": {
+    "bun": "^1.1.0"
+  }
 }

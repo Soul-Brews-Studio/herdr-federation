@@ -154,6 +154,7 @@ function cors(res: Response) {
 const validPane = (id: string) => /^[A-Za-z0-9_:-]+$/.test(id);
 
 type PaneSocket = { paneId: string; format: "text" | "ansi"; timer?: ReturnType<typeof setInterval>; last?: string; push?: () => Promise<void> };
+type PaneWS = import("bun").ServerWebSocket<PaneSocket>;
 
 /** Who is watching what, so a send can refresh those viewers at once. */
 const watchers = new Map<string, Set<{ data: PaneSocket }>>();
@@ -228,15 +229,54 @@ function nudge(paneId: string) {
   }
 }
 
-const server = Bun.serve<PaneSocket, {}>({
-  port: PORT,
-  hostname: HOST,
-  idleTimeout: 120,
+/**
+ * Access log. `FED_LOG=off` silences it, `debug` adds body sizes and every
+ * WebSocket open and close.
+ *
+ * On by default, because the alternative is what this project kept doing to
+ * itself: a node that answers is indistinguishable from the RIGHT node that
+ * answers, and without a request line there is nothing to tell them apart.
+ */
+const LOG = (process.env.FED_LOG ?? "access").toLowerCase();
+const LOG_ON = LOG !== "off" && LOG !== "0";
+const LOG_DEBUG = LOG === "debug";
 
-  async fetch(req, srv) {
-    const url = new URL(req.url);
-    const path = url.pathname;
+const clock = () => new Date().toTimeString().slice(0, 8);
 
+function access(method: string, path: string, status: number, ms: number, extra = "") {
+  if (!LOG_ON) return;
+  // Status first and fixed-width: a wall of these is read by scanning one column.
+  console.log(`[${clock()}] ${String(status).padEnd(3)} ${method.padEnd(4)} ${path.padEnd(34)} ${`${ms}ms`.padStart(6)}${extra}`);
+}
+
+/**
+ * Refuse to start when something is already serving this port.
+ *
+ * Bun does not fail on a second bind here the way a single-socket server would,
+ * so two nodes end up sharing :6750 and requests land on whichever accepted
+ * them. Measured tonight: a second node started from a bunx cache shadowed the
+ * real one, and `/api/status` reported `peers: 0` while the real node beside it
+ * held three healthy links. The tray read NO PEERS. Nothing was broken; the
+ * question had simply been answered by the wrong process.
+ */
+{
+  const probe = `http://${HOST === "0.0.0.0" ? "127.0.0.1" : HOST}:${PORT}/api/status`;
+  try {
+    const res = await fetch(probe, { signal: AbortSignal.timeout(700) });
+    if (res.ok) {
+      const who = (await res.json().catch(() => ({}))) as { node?: string };
+      console.error(`[fed] port ${PORT} is already serving node "${who.node ?? "?"}" — refusing to start a second one.`);
+      console.error(`[fed] Bun will share the socket rather than fail, and then your calls land on whichever process accepts them.`);
+      console.error(`[fed]   use another port:  FED_PORT=6751 ...`);
+      console.error(`[fed]   or stop that one:  just node stop`);
+      process.exit(3);
+    }
+  } catch {
+    // nothing listening, or it is not one of ours — either way, carry on
+  }
+}
+
+async function handle(req: Request, srv: import("bun").Server, url: URL, path: string): Promise<Response | undefined> {
     // ── live pane stream ────────────────────────────────────────────
     if (path.startsWith("/ws/pane/")) {
       const paneId = decodeURIComponent(path.slice("/ws/pane/".length));
@@ -706,10 +746,11 @@ const server = Bun.serve<PaneSocket, {}>({
       ].join("\n"),
       { status: 503, headers: { "content-type": "text/plain" } },
     );
-  },
+}
 
-  websocket: {
-    open(ws) {
+const WS_HANDLERS = {
+    open(ws: PaneWS) {
+      if (LOG_DEBUG) console.log(`[${clock()}] WS   open ${ws.data.paneId}`);
       const push = async () => {
         try {
           // MUST be `visible`: a `recent` read asks for scrollback, and for an idle
@@ -735,7 +776,7 @@ const server = Bun.serve<PaneSocket, {}>({
       void push();
       ws.data.timer = setInterval(push, PANE_MS);
     },
-    async message(ws, raw) {
+    async message(ws: PaneWS, raw: string | Buffer) {
       try {
         const msg = JSON.parse(String(raw)) as PaneClientMessage;
         if (msg.type === "text" && msg.text) await herdr.sendText(ws.data.paneId, msg.text);
@@ -747,11 +788,38 @@ const server = Bun.serve<PaneSocket, {}>({
         ws.send(JSON.stringify({ type: "error", error: String(err) }));
       }
     },
-    close(ws) {
+    close(ws: PaneWS) {
+      if (LOG_DEBUG) console.log(`[${clock()}] WS   close ${ws.data.paneId}`);
       if (ws.data.timer) clearInterval(ws.data.timer);
       watchers.get(ws.data.paneId)?.delete(ws as any);
     },
+};
+
+// Declared AFTER handle() and WS_HANDLERS, and that order is load-bearing: a
+// `const` is in its temporal dead zone until the line that defines it runs, so
+// serving before them threw "Cannot access 'WS_HANDLERS' before initialization"
+// at the first request. `bun build` compiles it happily — only running catches it.
+const server = Bun.serve<PaneSocket, {}>({
+  port: PORT,
+  hostname: HOST,
+  idleTimeout: 120,
+
+  async fetch(req, srv) {
+    const url = new URL(req.url);
+    const path = url.pathname;
+    const started = performance.now();
+    // Wrap the response on the way out rather than logging at each return: this
+    // handler has ~30 exit points and any log placed at them would miss some.
+    const done = (res: Response | undefined) => {
+      if (res) access(req.method, path, res.status, Math.round(performance.now() - started),
+        LOG_DEBUG ? ` ${res.headers.get("content-type")?.split(";")[0] ?? ""}` : "");
+      return res;
+    };
+
+    return done(await handle(req, srv, url, path));
   },
+
+  websocket: WS_HANDLERS,
 });
 
 async function sync() {
