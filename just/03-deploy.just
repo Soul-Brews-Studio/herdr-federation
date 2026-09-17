@@ -44,6 +44,10 @@ host target CONFIRM="no":
     rsync -az app/systemd/ {{ target }}:~/herdr-federation/app/systemd/
     rsync -az --delete just/ {{ target }}:~/herdr-federation/just/
     rsync -az justfile {{ target }}:~/herdr-federation/justfile
+    # the SKILL.md an agent on that host loads to drive its own node — shipped
+    # so `ln -s ~/herdr-federation/skills/herdr-federation ~/.claude/skills/…`
+    # works there without a checkout
+    rsync -az --delete skills/ {{ target }}:~/herdr-federation/skills/
     ssh {{ target }} 'test -f ~/herdr-federation/peers.json' \
         || echo "  no peers.json on {{ target }} yet — create one from peers.example.json"
     echo "  deployed. start it there with: ssh {{ target }} 'cd herdr-federation && just node start'"
