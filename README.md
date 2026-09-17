@@ -111,6 +111,29 @@ cd .. && bun run src/server.ts       # http://127.0.0.1:6750
 | `FED_IDENTITY` / `FED_MEMBERS` | `./.fed-identity.json` / `./.fed-members.json` | private key, and the membership store (both gitignored) |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | the one dependency |
 
+## For an AI agent
+
+`skills/herdr-federation/SKILL.md` is a [SKILL.md](https://code.claude.com/docs/en/skills)
+an agent can load to drive a node without being told the shape of the API. Install it
+by symlink so it tracks the checkout:
+
+```sh
+ln -s "$PWD/skills/herdr-federation" ~/.claude/skills/herdr-federation
+# Codex and other SKILL.md-compatible agents:
+ln -s "$PWD/skills/herdr-federation" "${CODEX_HOME:-$HOME/.codex}/skills/herdr-federation"
+```
+
+It covers reading the fleet, peeking a pane anywhere in the mesh, sending to an agent
+through a hub, and joining with an invite — plus the parts that reliably mislead a
+first reader: `stats.errors` is a lifetime total and not health, `pulled: 0` is normal,
+a `via` row's health belongs to the hub and not to you, and a peer's reported
+membership is only as fresh as the last successful pull.
+
+It also states what an agent must not do on its own: kick, ban and deploy all refuse
+without `CONFIRM=yes`, a restart destroys the peer-health evidence you were about to
+read, and `.fed-identity.json` is a private key that must never be printed — 200 bytes
+of it is the whole key.
+
 ## The console
 
 Both pages share one `MachinesTree` component — machine → repo → agents, the shape Herdr's
