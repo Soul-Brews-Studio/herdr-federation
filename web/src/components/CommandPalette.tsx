@@ -23,6 +23,15 @@ function score(needle: string, hay: string) {
   return hits * 2 + (h.startsWith(needle.toLowerCase()) ? 10 : 0);
 }
 
+/** Pages you can jump to, matched by the same subsequence search as the panes. */
+const PLACES = [
+  { label: "admin · members", hint: "kick, ban, who federates with this node", href: "/admin?tab=members" },
+  { label: "admin · invites", hint: "create an invite link", href: "/admin?tab=invites" },
+  { label: "admin · audit log", hint: "every membership decision, with its steps", href: "/admin?tab=audit" },
+  { label: "admin · overview", hint: "how joining and kicking actually work here", href: "/admin" },
+  { label: "squads", hint: "tile agents and message them together", href: "/teams" },
+];
+
 /**
  * ⌘K — every pane on every node in the federation, one keystroke away.
  * Enter watches it, ⇧Enter (or ⌘Enter) opens it for typing.
@@ -62,6 +71,11 @@ export function CommandPalette({ status, onPick }: Props) {
       .slice(0, 40)
       .map((x) => x.m);
   }, [q, status]);
+
+  const places = useMemo(
+    () => (q.trim() ? PLACES.filter((p) => score(q, p.label) >= 0 || score(q, p.hint) >= 0) : []),
+    [q],
+  );
 
   if (!open) return null;
 
@@ -104,7 +118,18 @@ export function CommandPalette({ status, onPick }: Props) {
         />
 
         <div className="max-h-[52vh] overflow-y-auto border-t border-edge">
-          {hits.length === 0 && <div className="px-4 py-3 text-[11px] text-faint">nothing matches</div>}
+          {places.map((p) => (
+            <a
+              key={p.href}
+              href={p.href}
+              className="grid grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2.5 px-4 py-1.5 hover:bg-[#18212e]"
+            >
+              <span className="text-[11px] text-accent">→</span>
+              <span className="truncate">{p.label}</span>
+              <span className="text-[11px] text-faint">{p.hint}</span>
+            </a>
+          ))}
+          {hits.length === 0 && places.length === 0 && <div className="px-4 py-3 text-[11px] text-faint">nothing matches</div>}
           {hits.map((m, i) => (
             <button
               key={`${m.node}/${m.pane}`}

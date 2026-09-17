@@ -53,10 +53,20 @@ export type Topology = { workspaces: UiWorkspace[]; tabs: UiTab[] };
 export type PeerView = {
   name: string;
   url: string;
+  /**
+   * Set when we hold NO link to this node ourselves and everything we know
+   * about it came through the named hub. `url` is then the hub's address —
+   * acting on such a node means asking the hub to forward — and `ok` /
+   * `consecutive` describe the hub's link to it, not ours.
+   */
   via?: string;
   ok?: boolean;
   lastError?: string;
+  lastErrorAt?: string;
   lastSeen?: string;
+  lastOkAt?: string;
+  /** failed attempts since the last success. 0 = the link is fine right now. */
+  consecutive?: number;
 };
 
 export type KnownNode = { node: string; url?: string; lastHeard: string };
@@ -79,11 +89,37 @@ export type Invite = {
   hint: string | null;
 };
 
-export type Stats = { pushed: number; pulled: number; errors: number; startedAt: string };
+/**
+ * Lifetime totals, and the units are NOT the same: `pushed` and `pullOk` count
+ * requests, `pulled` counts messages ingested. `pulled` is legitimately 0
+ * whenever peers have nothing new, so it must never be read as a failure — and
+ * `errors` never decays, so it reports history, not health. For health, read
+ * `PeerView.consecutive`.
+ */
+export type Stats = {
+  pushed: number;
+  pushErrors?: number;
+  pullOk?: number;
+  pullErrors?: number;
+  pulled: number;
+  errors: number;
+  /**
+   * Lifetime bytes on the wire, request bodies out and response bodies in.
+   * Monotonic counters like the rest: a UI derives a rate from two samples.
+   * Bodies only — headers and TLS are not counted, so this is the payload
+   * rate, not what a network interface would show.
+   */
+  bytesOut?: number;
+  bytesIn?: number;
+  startedAt: string;
+};
 
 /** GET /api/status */
 export type StatusResponse = {
   node: string;
+  identity: Identity;
+  /** true while peers without a token are still accepted — the UI must say so */
+  legacyAllowed: boolean;
   session: string | null;
   invite: Invite;
   topology: Topology;
@@ -92,9 +128,15 @@ export type StatusResponse = {
   members: Member[];
   messages: FedMessage[];
   peers: PeerView[];
+  /**
+   * Includes relayed nodes too, so every existing reader sees the whole
+   * reachable fleet; `relayed` says which ones came through a hub.
+   */
   peerMembers: Record<string, Member[]>;
+  /** where to send actions for a node — for a relayed node this is its hub */
   peerUi: Record<string, string>;
   known: KnownNode[];
+  relayed?: Record<string, RelayedPeer>;
 };
 
 /** GET /api/calls */
@@ -132,8 +174,52 @@ export type JoinResponse = { joined: { node: string; url: string } };
 export type LeaveRequest = { name?: string };
 export type LeaveResponse = { left: string };
 
+/**
+ * What a hub republishes about ONE of its direct peers, for a spoke that holds
+ * no link to that peer. This is the whole of the hub model: join one node and
+ * you see everyone it sees.
+ *
+ * Strictly one hop. A node republishes only what it pulled DIRECTLY — never
+ * what it was itself relayed — so a spoke sees hub + hub's peers, and a cycle
+ * of hubs cannot echo state around forever. `ok` and `lastOkAt` are the hub's
+ * link to that peer: the spoke has no better source, and must not pretend to.
+ */
+export type RelayedPeer = {
+  /** the hub this came through — filled in by the receiving spoke */
+  via?: string;
+  /** the peer's own advertised address, informational; route through `via` */
+  url?: string;
+  members: Member[];
+  ok?: boolean;
+  lastOkAt?: string;
+  consecutive?: number;
+};
+
+/** POST /api/fed/hey — deliver to one of MY panes; caller is an authenticated peer */
+export type FedHeyRequest = { to: string; text: string };
+/** POST /api/fed/relay — forward to one of MY DIRECT peers; caller is an authenticated spoke */
+export type FedRelayRequest = { node: string; to: string; text: string };
+
+/** POST /api/fed/pane — read one of MY panes; caller is an authenticated peer */
+export type FedPaneRequest = { pane: string; lines?: number };
+/** POST /api/fed/pane-relay — read a pane on one of MY DIRECT peers, for a spoke */
+export type FedPaneRelayRequest = { node: string; pane: string; lines?: number };
+export type FedPaneResponse = { node: string; pane: string; text: string; lines: number };
+
 /** GET /api/fed/state · POST /api/fed/ingest */
-export type FedState = { node: string; messages: FedMessage[]; members: Member[]; peers: PeerView[] };
+export type FedState = {
+  node: string;
+  identity?: Identity;
+  messages: FedMessage[];
+  members: Member[];
+  peers: PeerView[];
+  /** who this node federates with, so peers can render the mesh honestly */
+  federated?: MemberRecord[];
+  /** kicks this node made, published as fact — adopting them is the peer's choice */
+  kicks?: AuditEntry[];
+  /** my DIRECT peers' rosters, minus the caller's own — see RelayedPeer */
+  relayed?: Record<string, RelayedPeer>;
+};
 export type IngestRequest = { messages?: FedMessage[]; from?: { node?: string; url?: string } };
 export type IngestResponse = { added: number; node: string };
 
@@ -145,6 +231,183 @@ export type PaneClientMessage =
   | { type: "text"; text: string }
   | { type: "keys"; keys: string[] }
   | { type: "prompt"; text: string };
+
+/* ── membership: who this node federates with, and how that was decided ──── */
+
+/** This node's stable identity. The pubkey is what a ban pins to. */
+export type Identity = { node: string; pubkey: string; fingerprint: string };
+
+export type InviteStatus = "active" | "expired" | "revoked" | "exhausted";
+
+/**
+ * An invite link, Discord-style: the secret lives in the URL, it is spent on
+ * redemption, and revoking it stops future joins without touching anyone who
+ * already joined through it.
+ */
+export type InviteLink = {
+  id: string;
+  /** the secret in the link — present only to the node that issued it */
+  token: string | null;
+  url: string | null;
+  createdAt: string;
+  createdBy: string;
+  /** null = never expires */
+  expiresAt: string | null;
+  /** null = unlimited uses */
+  maxUses: number | null;
+  uses: number;
+  note?: string;
+  revokedAt?: string;
+  usedBy: { node: string; at: string }[];
+  status: InviteStatus;
+};
+
+/** A node we federate with. Tokens are never part of this view. */
+export type MemberRecord = {
+  node: string;
+  pubkey: string;
+  fingerprint: string;
+  url?: string;
+  joinedAt: string;
+  viaInvite?: string;
+  lastSeen?: string;
+  /** a peer from before tokens existed — allowed only while FED_ALLOW_LEGACY is on */
+  legacy?: boolean;
+};
+
+export type BanRecord = { node: string; pubkey: string; at: string; by: string; reason?: string };
+
+export type AuditAction =
+  | "invite.create"
+  | "invite.revoke"
+  | "member.join"
+  | "member.kick"
+  | "member.ban"
+  | "member.unban"
+  | "redeem.reject"
+  | "kick.adopt";
+
+/** One step of a process, as it actually happened — what the admin page draws. */
+export type AuditStep = { n: number; label: string; wire?: string; ok: boolean; detail?: string };
+
+export type AuditEntry = {
+  id: string;
+  at: string;
+  action: AuditAction;
+  /** the node acted upon */
+  node: string;
+  /** the node that acted — always the node that wrote the entry */
+  by: string;
+  reason?: string;
+  /**
+   * The one fact that tells this entry apart from its neighbours — which invite,
+   * which key, which failure. Set where the entry is made, because the UI would
+   * otherwise have to pattern-match prose out of `steps[].detail` to say anything
+   * beyond a wall clock time.
+   */
+  summary?: string;
+  steps: AuditStep[];
+};
+
+/**
+ * One edge of the federation, with BOTH halves of the relationship.
+ *
+ * Computed on the node rather than in each client, because the CLI map and the
+ * web map must never disagree about who holds whom — and because `stale` is a
+ * judgement about data freshness that only the node has the inputs for.
+ */
+export type FedEdge = {
+  peer: string;
+  url: string;
+  /** we hold them as a member */
+  ours: boolean;
+  /** they report holding us */
+  theirs: boolean;
+  /** both, AND the link is currently working — see `stale` */
+  mutual: boolean;
+  /**
+   * What a peer reports about itself arrives only on a successful pull, so while
+   * the link is failing the cache keeps answering. A stale edge may claim a
+   * mutuality that no longer exists.
+   */
+  stale: boolean;
+  /** panes this peer published on its last successful state */
+  panes: number;
+  ok?: boolean;
+  consecutive?: number;
+  lastSeen?: string;
+  lastOkAt?: string;
+  lastError?: string;
+};
+
+/** GET /api/admin */
+export type AdminState = {
+  node: string;
+  identity: Identity;
+  /** peers without a token are still accepted; the page must say so loudly */
+  legacyAllowed: boolean;
+  members: MemberRecord[];
+  invites: InviteLink[];
+  bans: BanRecord[];
+  audit: AuditEntry[];
+  /** what the rest of the mesh federates with — read-only, never actionable here */
+  meshMembers: Record<string, MemberRecord[]>;
+  /** kicks other nodes published and we have not adopted */
+  adoptable: (AuditEntry & { from: string })[];
+  /** the mesh as a graph: one entry per peer, both directions of each relationship */
+  edges: FedEdge[];
+  /** this node's own agent panes */
+  panes: Member[];
+  /** each peer's agent panes, as that peer last published them */
+  peerPanes: Record<string, Member[]>;
+  /** heard from, never joined — nodes that reached us without a membership */
+  heard: KnownNode[];
+  /** nodes we see only through a hub — drawn hanging off that hub, never as our edge */
+  relayed?: Record<string, RelayedPeer>;
+};
+
+/** POST /api/invites */
+export type CreateInviteRequest = { hours?: number | null; uses?: number | null; note?: string };
+export type CreateInviteResponse = { invite: InviteLink };
+export type InvitesResponse = { invites: InviteLink[] };
+
+/** POST /api/peers/redeem — our console telling our own node to go join someone */
+export type RedeemRequest = { from?: string; token?: string };
+export type RedeemResponse = { joined: { node: string; url: string }; entry: AuditEntry };
+
+/** POST /api/fed/redeem — the joiner presenting an invite to the issuer */
+export type FedRedeemRequest = {
+  token: string;
+  node: string;
+  pubkey: string;
+  url?: string;
+  /** the token WE issue to THEM, so one round trip authenticates both directions */
+  offerToken: string;
+  at: string;
+  sig: string;
+};
+export type FedRedeemResponse = { node: string; pubkey: string; url?: string; memberToken: string };
+
+/** GET /api/invites/:token — what a join landing page shows before you commit */
+export type InvitePreview = {
+  node: string;
+  fingerprint: string;
+  url: string | null;
+  expiresAt: string | null;
+  createdBy: string;
+  note?: string;
+  status: InviteStatus;
+  members: number;
+};
+
+/** POST /api/members/:node/kick · /ban · /unban */
+export type KickRequest = { reason?: string };
+export type KickResponse = { entry: AuditEntry };
+/** GET /api/members · GET /api/audit */
+export type MembersResponse = { members: MemberRecord[]; bans: BanRecord[] };
+export type AuditResponse = { audit: AuditEntry[] };
+/** POST /api/audit/adopt */
+export type AdoptRequest = { from?: string; node?: string; reason?: string };
 
 /** Any endpoint can answer with this instead. */
 export type ErrorResponse = { error: string };

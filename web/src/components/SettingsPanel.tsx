@@ -1,18 +1,9 @@
 import { useEffect } from "react";
 import { DEFAULTS, resetSettings, useSettings, type Settings } from "../settings";
 import { X } from "./Icons";
+import { Row, Stepper } from "./Bits";
 
 type Props = { onClose: () => void };
-
-const Row = ({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) => (
-  <div className="grid grid-cols-[1fr_auto] items-center gap-4 border-b border-edge px-4 py-2.5 last:border-b-0">
-    <div className="min-w-0">
-      <div>{label}</div>
-      {hint && <div className="text-[11px] text-faint">{hint}</div>}
-    </div>
-    <div className="flex items-center gap-1">{children}</div>
-  </div>
-);
 
 function Choice<K extends keyof Settings>({
   name,
@@ -41,16 +32,6 @@ function Choice<K extends keyof Settings>({
     </>
   );
 }
-
-const Stepper = ({ value, set, min, max, step = 1, unit = "" }: {
-  value: number; set: (n: number) => void; min: number; max: number; step?: number; unit?: string;
-}) => (
-  <>
-    <button onClick={() => set(Math.max(min, value - step))} className="grid h-6 w-6 place-items-center rounded text-faint hover:bg-[#1f2531] hover:text-fg">−</button>
-    <span className="w-14 text-center text-[11px] text-dim">{value}{unit}</span>
-    <button onClick={() => set(Math.min(max, value + step))} className="grid h-6 w-6 place-items-center rounded text-faint hover:bg-[#1f2531] hover:text-fg">+</button>
-  </>
-);
 
 /** ⌘, — the console's own preferences, stored per browser. */
 export function SettingsPanel({ onClose }: Props) {

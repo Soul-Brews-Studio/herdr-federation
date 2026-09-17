@@ -5,7 +5,16 @@
 node_modules/
 dist/
 web/tsconfig.tsbuildinfo
+# SwiftPM: .build holds the object tree AND the generated .app bundle
+app/tray/.build/
 
 # runtime state: this node's identity, its peers, its message log
 peers.json
 .fed-state.json
+# secrets: the node's private key, and every member/invite token it holds
+.fed-identity.json
+.fed-members.json
+
+# scratch
+.tmp/
+.demo/

@@ -1,6 +1,7 @@
 import type {
-  BroadcastRequest, BroadcastResponse, CallsResponse, ErrorResponse, HeyResponse,
-  JoinResponse, LeaveResponse, Status,
+  AdminState, BroadcastRequest, BroadcastResponse, CallsResponse, CreateInviteRequest,
+  CreateInviteResponse, ErrorResponse, HeyResponse, InvitePreview, JoinResponse, KickResponse,
+  LeaveResponse, RedeemResponse, Status,
 } from "./types";
 
 /**
@@ -30,4 +31,17 @@ export const api = {
   broadcast: (body: BroadcastRequest) => post<BroadcastResponse>("/api/broadcast", body),
   join: (url: string) => post<JoinResponse>("/api/peers/join", { url }),
   leave: (name: string) => post<LeaveResponse>("/api/peers/leave", { name }),
+
+  /* ── membership ─────────────────────────────────────────────────────── */
+  admin: () => call<AdminState>("/api/admin"),
+  createInvite: (body: CreateInviteRequest) => post<CreateInviteResponse>("/api/invites", body),
+  revokeInvite: (id: string) => call<CreateInviteResponse>(`/api/invites/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  /** read an invite at the node that issued it — `base` is that node, not ours */
+  previewInvite: (base: string, token: string) => call<InvitePreview>(`/api/invite-preview/${encodeURIComponent(token)}`, undefined, base),
+  /** tell OUR node to go redeem an invite at theirs */
+  redeem: (from: string, token: string) => post<RedeemResponse>("/api/peers/redeem", { from, token }),
+  kick: (node: string, reason?: string) => post<KickResponse>(`/api/members/${encodeURIComponent(node)}/kick`, { reason }),
+  ban: (node: string, reason?: string) => post<KickResponse>(`/api/members/${encodeURIComponent(node)}/ban`, { reason }),
+  unban: (node: string) => post<KickResponse>(`/api/members/${encodeURIComponent(node)}/unban`, {}),
+  adoptKick: (node: string, from: string, reason?: string) => post<KickResponse>("/api/audit/adopt", { node, from, reason }),
 };

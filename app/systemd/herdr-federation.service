@@ -1,0 +1,40 @@
+# A federation node that survives a reboot.
+#
+# Installed as a USER unit, not system: the node reads $HOME/.config/herdr/herdr.sock,
+# which is per-user, and two users on one host each run their own node on their own
+# port (measured: god on :6750 and nat on :6751 are the same machine). A system unit
+# would have neither the right socket nor a way to be two of them.
+#
+#   systemctl --user enable --now herdr-federation
+#   loginctl enable-linger $USER      # or it stops when you log out
+#
+# Port and advertised address come from ~/.config/herdr-federation/node.env so the
+# unit itself is identical on every host.
+
+[Unit]
+Description=herdr federation node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/herdr-federation
+EnvironmentFile=%h/.config/herdr-federation/node.env
+# systemd does not inherit an interactive PATH, and bun is not in one place:
+# per-user under ~/.bun on white, system-wide in /usr/local/bin on black. A
+# hard-coded %h/.bun/bin/bun failed there with status=203/EXEC (measured
+# 2026-09-17), so the unit searches the places it is actually installed.
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env bun run src/server.ts
+Restart=always
+RestartSec=5
+# The herdr socket may not exist yet right after a reboot. Restart=always plus a
+# short backoff is the whole recovery: the node exits, waits, and comes back when
+# herdr does. Do not add a start-limit burst cap — that is what turns a slow boot
+# into a node that never starts at all.
+StartLimitIntervalSec=0
+StandardOutput=append:%h/.local/state/herdr-federation.log
+StandardError=append:%h/.local/state/herdr-federation.log
+
+[Install]
+WantedBy=default.target

@@ -68,6 +68,9 @@ cd .. && bun run src/server.ts       # http://127.0.0.1:6750
 | `FED_HOST` / `FED_PORT` | `127.0.0.1` / `6750` | bind |
 | `FED_SYNC_MS` | `2000` | peer sync interval |
 | `FED_PANE_MS` | `700` | pane poll interval |
+| `FED_ADVERTISE` | — | the address peers should use; without it this node cannot issue a working invite |
+| `FED_ALLOW_LEGACY` | `1` | accept peers that have no member token — **turn this off once every peer is re-invited** |
+| `FED_IDENTITY` / `FED_MEMBERS` | `./.fed-identity.json` / `./.fed-members.json` | private key, and the membership store (both gitignored) |
 | `HERDR_SOCKET_PATH` | `~/.config/herdr/herdr.sock` | the one dependency |
 
 ## The console
@@ -83,15 +86,103 @@ own sidebar uses, with repo derived from each agent's cwd.
   re-resolved against the live roster each tick, so a restarted agent's new pane id heals
   itself.
 
+## Joining and kicking
+
+Membership works the way a Discord server does, adapted to a mesh with no server above the
+nodes. `/admin` shows all of it, and draws each process from the steps the node actually
+recorded rather than from a description of them.
+
+**Joining** — five steps, and step 3 is the one people trip over:
+
+```
+A = the node that invites        B = the node that joins
+1. A  creates an invite       POST /api/invites        → http://A:6750/join/<secret>
+2. B  opens the link          GET  /join/<secret>      → A's invite page
+3. B  clicks "join as my node" → http://B:6750/join?from=A&t=<secret>
+4. B  confirms on its own console, then presents the invite to A:
+      POST A/api/fed/redeem {token, node, pubkey, url, offerToken, at, sig}
+      A checks: invite known? still active? key not banned? request fresh? signature valid?
+      A replies with the token B must present from now on; B's `offerToken` is A's.
+5. both store the membership, and sync starts — every call carries `x-fed-token`.
+```
+
+Step 3 exists because **a browser cannot join anything — a node can**. Opening an invite
+link proves only that you can open a link, so the page hands off to the console running on
+your own machine, the way a Discord invite hands off to the app. That console always asks
+before joining: a link anyone can send you must not federate your machine on its own.
+
+**Kicking** deletes the membership. Their token stops authenticating, so their next call to
+`/api/fed/*` answers 401 — that is the whole difference from the old `leave`, which only
+stopped *us* calling *them* and left their door into us open. They can return through any
+invite that is still valid. **Banning** additionally pins their ed25519 public key, so no
+invite helps.
+
+**A kick is enforced on this node only**, and that is the honest answer rather than a
+shortcut. There is no server above these nodes, so a mesh-wide kick would mean every node
+obeying any other node — and one compromised node could then empty the mesh with nobody
+entitled to refuse. Kicks are published instead; a peer sees them on its admin page and
+adopts them with a click, the way a Matrix homeserver keeps its own ACL.
+
+The justfile is split one module per concern — `node`, `fed`, `deploy` — with
+reads free and every write refusing until it is confirmed:
+
+```sh
+just                        # modules and top-level recipes
+just up                     # build the console, run the node
+just overview               # the process and the federation in one screen
+
+just fed invite             # 24h, unlimited uses · just fed invite 24 1 → single use
+just fed redeem <link>      # tell this node to go join theirs
+just fed members            # who federates here, what the mesh reports, who is banned
+just fed audit              # every decision, with the steps it took
+
+just fed kick <node>        # REFUSES, and prints who it would remove
+just fed kick <node> CONFIRM=yes
+just fed ban  <node> CONFIRM=yes
+just deploy host <target> CONFIRM=yes
+```
+
+A bare `just fed kick white` prints the member on record — key, join time, which
+invite they came in through — and the command that would mean it. Nothing
+changes. The same shape guards `ban`, `unban` and `deploy host`.
+
+Two things about `just` that cost real time here, written down so they do not
+again:
+
+- **A `mod` recipe runs with its cwd set to the module file's directory.**
+  `justfile_directory()` stays at the root, but `pwd` does not, so `bun run
+  src/server.ts` in a module looks inside `just/`. `set working-directory := '..'`
+  at the top of each module fixes it once; `import` does not move the cwd at all.
+- **`NAME=value` after a recipe name is positional, not a variable override.**
+  `just fed kick white CONFIRM=yes` passes the literal string `CONFIRM=yes` as
+  the parameter, so a naive `[ "$CONFIRM" != "yes" ]` guard never opens and the
+  documented command always refuses. These recipes strip the prefix, so both
+  `CONFIRM=yes` and a bare `yes` work.
+
 ## Security
 
 A console URL is a write path into real terminals — treat it as a root login. The server
 binds loopback by default; anything wider belongs behind the mesh.
 
+Between nodes, identity is an ed25519 keypair minted on first boot (`.fed-identity.json`)
+and the credential is a random token issued at redemption. The key is signed with exactly
+once, when an invite is redeemed, because a ban has to outlive a token: tokens are handed
+out and revoked, the public key is the stable thing a ban can pin to.
+
+That token travels in a plain HTTP header. Over NetBird the transport is already encrypted;
+over a flat LAN it is not, so anyone who can capture traffic there can capture the token.
+This raises the node from *no authentication at all* to a bearer token on a private mesh —
+it is not end-to-end. Signing every request would close that, and the identity module is
+already there for it.
+
 ## Known gaps
 
-- Peers are unauthenticated: reaching a node's port is enough to drive it. `maw pair`'s
-  ephemeral-code/pubkey handshake is the model for hardening.
+- `FED_ALLOW_LEGACY` defaults to **on**, so a peer with no token is still accepted and a
+  kick does not yet fully close the door. It exists so an already-federated pair does not go
+  dark on deploy; re-invite every peer, then restart with `FED_ALLOW_LEGACY=0`.
+- The member token is a bearer credential in a header, not a per-request signature, so a LAN
+  attacker who can read traffic can replay it.
+- The console itself is unauthenticated: whoever reaches the port is the node's admin.
 - `pane.read` returns plain text, so colour is dropped; an ANSI-preserving renderer is the
   next step.
 - Federation messages are a flat log capped at 500 entries, no channels.
