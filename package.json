@@ -16,7 +16,8 @@
   "files": [
     "bin/",
     "src/",
-    "web/dist/",
+    "web/",
+    "skills/",
     "peers.example.json",
     "README.md"
   ],
