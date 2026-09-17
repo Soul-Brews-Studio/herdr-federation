@@ -202,6 +202,9 @@ export type FedRelayRequest = { node: string; to: string; text: string };
 
 /** POST /api/fed/pane — read one of MY panes; caller is an authenticated peer */
 export type FedPaneRequest = { pane: string; lines?: number };
+/** POST /api/fleet/hey — the console asking THIS node to deliver anywhere in the mesh */
+export type FleetHeyRequest = { node: string; to: string; text: string };
+
 /** POST /api/fed/pane-relay — read a pane on one of MY DIRECT peers, for a spoke */
 export type FedPaneRelayRequest = { node: string; pane: string; lines?: number };
 export type FedPaneResponse = { node: string; pane: string; text: string; lines: number };

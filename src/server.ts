@@ -13,7 +13,7 @@ import type { Pane, Tab, Workspace } from "./protocol";
 import type {
   AdminState, AdoptRequest, AuditEntry, AuditStep, BroadcastRequest, BroadcastResult, CallsResponse,
   CreateInviteRequest, CreateInviteResponse, ErrorResponse, FedRedeemRequest, FedRedeemResponse,
-  FedHeyRequest, FedPaneRelayRequest, FedPaneRequest, FedPaneResponse, FedRelayRequest, FedState,
+  FedHeyRequest, FedPaneRelayRequest, FedPaneRequest, FedPaneResponse, FedRelayRequest, FedState, FleetHeyRequest,
   HeyRequest, HeyResponse, IngestRequest, IngestResponse,
   Invite, InvitePreview, RelayedPeer,
   InvitesResponse, JoinRequest, JoinResponse, KickRequest, KickResponse, LeaveRequest,
@@ -352,6 +352,38 @@ async function handle(req: Request, srv: import("bun").Server, url: URL, path: s
         const out = await res.json();
         if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
         return json<FedPaneResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /**
+     * The console asking THIS node to DELIVER anywhere in the federation.
+     *
+     * The mirror of /api/fleet/pane, and it existed only as the multi-target
+     * /api/broadcast until now. Reading gained node routing and sending did
+     * not, so `peek <node>:<pane>` worked cross-machine while `hey` of the same
+     * address silently resolved against the local roster and reported "no agent"
+     * — the gap nonsense-matters-oracle found from source and filed.
+     */
+    if (path === "/api/fleet/hey" && req.method === "POST") {
+      const { node, to, text } = (await req.json()) as FleetHeyRequest;
+      if (!node || !to || !text?.trim()) return json<ErrorResponse>({ error: "need node, to and text" }, 400);
+      try {
+        if (node === config.node) {
+          const t = await deliverLocal(to, text.trim());
+          return json<HeyResponse>({ delivered: "pane", to: t.handle, pane: t.pane });
+        }
+        let res: Response;
+        if (fed.peer(node)) {
+          res = await fed.call(node, "/api/fed/hey", { method: "POST", body: JSON.stringify({ to, text: text.trim() }) });
+        } else if (fed.relayed[node]) {
+          res = await fed.call(fed.relayed[node].via, "/api/fed/relay", { method: "POST", body: JSON.stringify({ node, to, text: text.trim() }) });
+        } else {
+          return json<ErrorResponse>({ error: `no route to ${node} — not a peer, and no hub relays it` }, 404);
+        }
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<HeyResponse>(out);
       } catch (err) {
         return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
       }
