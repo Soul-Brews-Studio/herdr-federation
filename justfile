@@ -51,7 +51,36 @@ status:
 logs:
     @tail -f /tmp/fed-{{ port }}.log
 
-# join another node, the way you paste a Discord invite
+# create an invite link — hand it to another node, the way you hand out a Discord invite
+# `uses` is null for unlimited, or a number for a link that is spent that many times
+invite hours="24" uses="null":
+    @curl -s -X POST "http://127.0.0.1:{{ port }}/api/invites" \
+        -H 'content-type: application/json' \
+        -d '{"hours":{{ hours }},"uses":{{ uses }}}' | bin/members.py invite
+
+# redeem someone else's invite link (paste the whole link)
+redeem link:
+    @bin/members.py redeem "{{ link }}" "http://127.0.0.1:{{ port }}"
+
+# who federates with this node, who the mesh federates with, and who is banned
+members:
+    @curl -s "http://127.0.0.1:{{ port }}/api/admin" | bin/members.py members
+
+# kick: their token dies here. They can return through any invite still valid.
+kick node reason="":
+    @curl -s -X POST "http://127.0.0.1:{{ port }}/api/members/{{ node }}/kick" \
+        -H 'content-type: application/json' -d '{"reason":"{{ reason }}"}' | bin/members.py steps
+
+# ban: a kick, plus their key is pinned so no invite lets them back
+ban node reason="":
+    @curl -s -X POST "http://127.0.0.1:{{ port }}/api/members/{{ node }}/ban" \
+        -H 'content-type: application/json' -d '{"reason":"{{ reason }}"}' | bin/members.py steps
+
+# every membership decision this node made, with the steps it took
+audit limit="20":
+    @curl -s "http://127.0.0.1:{{ port }}/api/audit?limit={{ limit }}" | bin/members.py audit
+
+# the pre-invite way in — works only while FED_ALLOW_LEGACY is on
 join url:
     @curl -s -X POST "http://127.0.0.1:{{ port }}/api/peers/join" \
         -H 'content-type: application/json' -d '{"url":"{{ url }}"}' | python3 -m json.tool

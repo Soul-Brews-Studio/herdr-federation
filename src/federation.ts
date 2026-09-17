@@ -32,6 +32,8 @@ export type PeerMember = {
   repo?: string;
 };
 
+import type { AuditEntry, MemberRecord } from "./wire";
+
 export type FedConfig = {
   node: string;
   peers: Peer[];
@@ -54,12 +56,30 @@ export class Federation {
   peerUi: Record<string, string> = {};
   stats = { pushed: 0, pulled: 0, errors: 0, startedAt: new Date().toISOString() };
 
+  /** what each peer reports about its own membership — read-only, for the mesh view */
+  peerFederated: Record<string, MemberRecord[]> = {};
+  /** kicks each peer published; adopting one is always a deliberate click here */
+  peerKicks: Record<string, AuditEntry[]> = {};
+
   constructor(
     readonly config: FedConfig,
     readonly statePath: string,
+    /**
+     * The credential to present to a given peer. Membership lives in Members;
+     * this class only needs to know how to stamp an outbound call.
+     */
+    readonly tokenFor: (node: string) => string | undefined = () => undefined,
     readonly timeoutMs = 5000,
   ) {
     this.#peers = [...config.peers];
+  }
+
+  /** Register a peer we have just completed a handshake with. */
+  addPeer(name: string, url: string) {
+    const existing = this.#peers.find((p) => p.name === name);
+    if (existing) existing.url = url;
+    else this.#peers.push({ name, url });
+    this.config.peers = this.#peers.map(({ name: n, url: u }) => ({ name: n, url: u }));
   }
 
   get peers() {
@@ -94,6 +114,8 @@ export class Federation {
     this.#peers = this.#peers.filter((p) => p.name !== name);
     this.config.peers = this.#peers.map(({ name: n, url }) => ({ name: n, url }));
     delete this.peerMembers[name];
+    delete this.peerFederated[name];
+    delete this.peerKicks[name];
     delete this.health[name];
   }
 
@@ -159,10 +181,16 @@ export class Federation {
   }
 
   #fetch(peer: Peer, path: string, init: RequestInit = {}) {
+    // one place stamps the credential, so no call site can forget to
+    const token = this.tokenFor(peer.name);
     return fetch(`${peer.url}${path}`, {
       ...init,
       signal: AbortSignal.timeout(this.timeoutMs),
-      headers: { "content-type": "application/json", ...(init.headers ?? {}) },
+      headers: {
+        "content-type": "application/json",
+        ...(token ? { "x-fed-token": token } : {}),
+        ...(init.headers ?? {}),
+      },
     });
   }
 
@@ -200,10 +228,14 @@ export class Federation {
             messages?: FedMessage[];
             members?: PeerMember[];
             peers?: Peer[];
+            federated?: MemberRecord[];
+            kicks?: AuditEntry[];
           };
           const added = this.ingest(state.messages ?? []);
           this.stats.pulled += added;
           this.peerMembers[peer.name] = state.members ?? [];
+          this.peerFederated[peer.name] = state.federated ?? [];
+          this.peerKicks[peer.name] = state.kicks ?? [];
           this.peerUi[peer.name] = peer.url;
           this.health[peer.name] = { ok: true, lastSeen: new Date().toISOString() };
 

@@ -11,26 +11,53 @@ import { join } from "node:path";
 import * as herdr from "./herdr";
 import type { Pane, Tab, Workspace } from "./protocol";
 import type {
-  BroadcastRequest, BroadcastResult, CallsResponse, ErrorResponse, FedState, HeyRequest,
-  HeyResponse, IngestRequest, IngestResponse, Invite, JoinRequest, JoinResponse, LeaveRequest,
-  LeaveResponse, Member, PaneClientMessage, PaneServerMessage, StatusResponse, Topology, UiTab, UiWorkspace,
+  AdminState, AdoptRequest, AuditEntry, AuditStep, BroadcastRequest, BroadcastResult, CallsResponse,
+  CreateInviteRequest, CreateInviteResponse, ErrorResponse, FedRedeemRequest, FedRedeemResponse,
+  FedState, HeyRequest, HeyResponse, IngestRequest, IngestResponse, Invite, InvitePreview,
+  InvitesResponse, JoinRequest, JoinResponse, KickRequest, KickResponse, LeaveRequest,
+  LeaveResponse, Member, PaneClientMessage, PaneServerMessage, RedeemRequest, RedeemResponse,
+  StatusResponse, Topology, UiTab, UiWorkspace,
 } from "./wire";
 import { Federation, type FedConfig, type FedMessage } from "./federation";
+import { NodeIdentity, secret } from "./identity";
+import { Members, RedeemError, redeemMessage } from "./members";
 
 // import.meta.dir, not new URL().pathname — the latter percent-encodes the ψ in the repo path
 const ROOT = join(import.meta.dir, "..");
 const CONFIG_PATH = process.env.FED_CONFIG ?? join(ROOT, "peers.json");
 const STATE_PATH = process.env.FED_STATE ?? join(ROOT, ".fed-state.json");
+const IDENTITY_PATH = process.env.FED_IDENTITY ?? join(ROOT, ".fed-identity.json");
+const MEMBERS_PATH = process.env.FED_MEMBERS ?? join(ROOT, ".fed-members.json");
 const DIST = join(ROOT, "web", "dist");
 const PORT = Number(process.env.FED_PORT ?? 6750);
 const HOST = process.env.FED_HOST ?? "127.0.0.1";
 const SYNC_MS = Number(process.env.FED_SYNC_MS ?? 2000);
 const PANE_MS = Number(process.env.FED_PANE_MS ?? 300);
+/**
+ * Peers that predate tokens still work while this is on. It is on by default
+ * for exactly one release so an already-federated pair does not go dark on
+ * deploy; the admin page says so loudly on every screen until it is off.
+ */
+const ALLOW_LEGACY = (process.env.FED_ALLOW_LEGACY ?? "1") !== "0";
 
 const config: FedConfig = await Bun.file(CONFIG_PATH).json();
-const fed = new Federation(config, STATE_PATH);
-fed.advertised = process.env.FED_ADVERTISE ? `http://${process.env.FED_ADVERTISE}:${process.env.FED_PORT ?? 6750}` : undefined;
+
+/** How peers reach us. 0.0.0.0 means "bound everywhere", which is not an address. */
+function publicBase(): string | null {
+  if (process.env.FED_ADVERTISE) return `http://${process.env.FED_ADVERTISE}:${PORT}`;
+  return HOST === "127.0.0.1" || HOST === "0.0.0.0" || HOST === "localhost" ? null : `http://${HOST}:${PORT}`;
+}
+
+const ident = await NodeIdentity.open(config.node, IDENTITY_PATH);
+const fedMembers = new Members(config.node, MEMBERS_PATH, publicBase, ALLOW_LEGACY);
+await fedMembers.load();
+
+const fed = new Federation(config, STATE_PATH, (node) => fedMembers.tokenFor(node));
+fed.advertised = publicBase() ?? undefined;
 await fed.load();
+
+// peers configured before tokens existed: show them, flagged, rather than hide them
+for (const p of fed.peers) fedMembers.adoptLegacy(p.name, p.url);
 
 let members: Member[] = [];
 /** workspace + tab topology, so the console can show what herdr itself shows */
@@ -92,14 +119,33 @@ const saveConfig = () =>
 
 /** What to hand someone so they can join this node — Discord's invite, minus the server. */
 function invite(): Invite {
-  const host = process.env.FED_ADVERTISE ?? (HOST === "127.0.0.1" ? null : HOST);
+  const base = publicBase();
   return {
     node: config.node,
     session: process.env.HERDR_SESSION ?? null,
     socket: herdr.SOCKET_PATH,
-    url: host ? `http://${host}:${PORT}` : null,
-    hint: host ? null : "bind beyond loopback (FED_HOST) or set FED_ADVERTISE to be joinable",
+    url: base,
+    hint: base ? null : "set FED_ADVERTISE to the address peers should use, or this node cannot issue a working invite",
   };
+}
+
+/**
+ * Federation endpoints are members-only. A kicked node fails here on its very
+ * next call, which is the difference between a kick and merely looking away.
+ */
+function member(req: Request) {
+  const found = fedMembers.authenticate(req.headers.get("x-fed-token"));
+  if (found) return { ok: true as const, node: found.node };
+  if (ALLOW_LEGACY) return { ok: true as const, node: "(legacy, unverified)" };
+  return { ok: false as const, node: "" };
+}
+
+const unauthorized = () => json<ErrorResponse>({ error: "not a member of this node — redeem an invite" }, 401);
+
+/** Only the invite preview is readable cross-origin; nothing else here is. */
+function cors(res: Response) {
+  res.headers.set("access-control-allow-origin", "*");
+  return res;
 }
 
 /** Panes are addressed as `wD:p4`; anything else is not ours to open. */
@@ -138,16 +184,44 @@ const server = Bun.serve<PaneSocket, {}>({
 
     // ── federation (peer to peer, no hub) ───────────────────────────
     if (path === "/api/fed/state") {
+      if (!member(req).ok) return unauthorized();
       return json<FedState>({
         node: config.node,
+        identity: ident.identity,
         messages: fed.messages,
         members,
         peers: fed.peers.map((p) => ({ name: p.name, url: p.url, via: p.via })),
+        federated: fedMembers.members,
+        kicks: fedMembers.publishedKicks,
       });
     }
     if (path === "/api/fed/ingest" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
       const body = (await req.json()) as IngestRequest;
       return json<IngestResponse>({ added: fed.ingest(body.messages ?? [], body.from), node: config.node });
+    }
+
+    /**
+     * Someone presents an invite. Deliberately the one federation endpoint with
+     * no token check — the invite secret IS the credential, and it is spent here.
+     */
+    if (path === "/api/fed/redeem" && req.method === "POST") {
+      const body = (await req.json()) as FedRedeemRequest;
+      try {
+        const { memberToken } = fedMembers.redeem(body);
+        fed.addPeer(body.node, body.url ?? "");
+        await saveConfig();
+        void fed.pullAll();
+        return json<FedRedeemResponse>({
+          node: config.node,
+          pubkey: ident.pubkey,
+          url: publicBase() ?? undefined,
+          memberToken,
+        });
+      } catch (err) {
+        const code = err instanceof RedeemError ? err.code : "error";
+        return json<ErrorResponse>({ error: `${code}: ${(err as Error).message}` }, code === "banned" ? 403 : 400);
+      }
     }
 
     if (path === "/api/invite") return json(invite());
@@ -157,6 +231,8 @@ const server = Bun.serve<PaneSocket, {}>({
       return json<CallsResponse>({ calls: herdr.calls().slice(0, Number(url.searchParams.get("limit") ?? 80)) });
 
     if (path === "/api/peers/join" && req.method === "POST") {
+      // the pre-invite way in. Only reachable while legacy peers are tolerated.
+      if (!ALLOW_LEGACY) return json<ErrorResponse>({ error: "this node only accepts invite links" }, 403);
       const { url: peerUrl } = (await req.json()) as JoinRequest;
       if (!peerUrl?.trim()) return json({ error: "no address" }, 400);
       try {
@@ -176,10 +252,148 @@ const server = Bun.serve<PaneSocket, {}>({
       return json<LeaveResponse>({ left: name });
     }
 
+    // ── membership: invites, members, bans, audit ───────────────────
+    if (path === "/api/invites" && req.method === "POST") {
+      const body = (await req.json().catch(() => ({}))) as CreateInviteRequest;
+      return json<CreateInviteResponse>({ invite: fedMembers.createInvite(body) });
+    }
+    if (path === "/api/invites" && req.method === "GET") return json<InvitesResponse>({ invites: fedMembers.invites });
+
+    if (path.startsWith("/api/invites/") && req.method === "DELETE") {
+      const revoked = fedMembers.revokeInvite(path.slice("/api/invites/".length));
+      if (!revoked) return json<ErrorResponse>({ error: "no such invite" }, 404);
+      await saveConfig();
+      return json({ invite: revoked });
+    }
+
+    /**
+     * What the join landing page may show before anyone commits. The secret in
+     * the URL is the ticket, so this is readable cross-origin: the joiner's own
+     * console has to render it, and whoever holds the token already holds it.
+     */
+    if (path.startsWith("/api/invite-preview/")) {
+      const found = fedMembers.preview(decodeURIComponent(path.slice("/api/invite-preview/".length)));
+      if (!found) return cors(json<ErrorResponse>({ error: "that invite does not exist on this node" }, 404));
+      return cors(json<InvitePreview>({
+        node: config.node,
+        fingerprint: ident.identity.fingerprint,
+        url: publicBase(),
+        expiresAt: found.invite.expiresAt,
+        createdBy: found.invite.createdBy,
+        note: found.invite.note,
+        status: found.status,
+        members: fedMembers.members.length,
+      }));
+    }
+
+    /** Our own console telling this node to go redeem an invite somewhere. */
+    if (path === "/api/peers/redeem" && req.method === "POST") {
+      const { from, token } = (await req.json()) as RedeemRequest;
+      if (!from?.trim() || !token?.trim()) return json<ErrorResponse>({ error: "need both an address and an invite token" }, 400);
+      const target = from.trim().replace(/\/+$/, "");
+      const offerToken = secret();
+      const at = new Date().toISOString();
+      const body: FedRedeemRequest = {
+        token: token.trim(),
+        node: config.node,
+        pubkey: ident.pubkey,
+        url: publicBase() ?? undefined,
+        offerToken,
+        at,
+        sig: ident.sign(redeemMessage({ token: token.trim(), node: config.node, at })),
+      };
+      const steps: AuditStep[] = [
+        { n: 1, label: "read the invite link", ok: true, detail: `${target} · token ${token.trim().slice(0, 6)}…` },
+        { n: 2, label: "mint the token we will issue them", ok: true, detail: "one round trip authenticates both directions" },
+        { n: 3, label: "sign the request with this node's key", ok: true, detail: `ed25519 · ${ident.identity.fingerprint}` },
+      ];
+      try {
+        const res = await fetch(`${target}/api/fed/redeem`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(8000),
+        });
+        const out = (await res.json()) as FedRedeemResponse & ErrorResponse;
+        if (!res.ok || out.error) throw new Error(out.error ?? `${res.status}`);
+        steps.push({ n: 4, label: "they verified it and issued us a token", wire: `POST ${target}/api/fed/redeem`, ok: true, detail: `${out.node} · ${out.pubkey.slice(0, 16)}` });
+        const entry = fedMembers.adopt(
+          { node: out.node, pubkey: out.pubkey, url: out.url ?? target, ourToken: offerToken, theirToken: out.memberToken },
+          [...steps, { n: 5, label: "store the membership and start syncing", ok: true, detail: `${out.node} is now a member of ${config.node}` }],
+        );
+        fed.addPeer(out.node, out.url ?? target);
+        await saveConfig();
+        void fed.pullAll();
+        return json<RedeemResponse>({ joined: { node: out.node, url: out.url ?? target }, entry });
+      } catch (err) {
+        const detail = String(err).replace(/^Error:\s*/, "");
+        steps.push({ n: 4, label: "present the invite", wire: `POST ${target}/api/fed/redeem`, ok: false, detail });
+        fedMembers.record("redeem.reject", target, steps, detail);
+        return json<ErrorResponse>({ error: detail }, 400);
+      }
+    }
+
+    if (path === "/api/members") return json({ members: fedMembers.members, bans: fedMembers.bans });
+    if (path === "/api/audit") return json({ audit: fedMembers.audit.slice(0, Number(url.searchParams.get("limit") ?? 100)) });
+
+    const act = path.match(/^\/api\/members\/([^/]+)\/(kick|ban|unban)$/);
+    if (act && req.method === "POST") {
+      const node = decodeURIComponent(act[1]);
+      const { reason } = (await req.json().catch(() => ({}))) as KickRequest;
+      if (node === config.node) return json<ErrorResponse>({ error: "a node cannot kick itself" }, 400);
+
+      if (act[2] === "unban") {
+        const entry = fedMembers.unban(node);
+        return entry ? json<KickResponse>({ entry }) : json<ErrorResponse>({ error: `${node} is not banned here` }, 404);
+      }
+      const entry = act[2] === "ban" ? fedMembers.ban(node, reason) : fedMembers.kick(node, reason);
+      if (!entry) return json<ErrorResponse>({ error: `${node} is not a member of this node` }, 404);
+      fed.leave(node);
+      await saveConfig();
+      return json<KickResponse>({ entry });
+    }
+
+    /** A peer published a kick; adopting it is a click here and nothing else. */
+    if (path === "/api/audit/adopt" && req.method === "POST") {
+      const { node, from, reason } = (await req.json()) as AdoptRequest & { from?: string };
+      if (!node || !from) return json<ErrorResponse>({ error: "need the node and who kicked it" }, 400);
+      const entry = fedMembers.adoptKick({ node, from, reason });
+      if (!entry) return json<ErrorResponse>({ error: `${node} is not a member of this node` }, 404);
+      fed.leave(node);
+      await saveConfig();
+      return json<KickResponse>({ entry });
+    }
+
+    if (path === "/api/admin") {
+      const mine = new Set(fedMembers.members.map((m) => m.node));
+      // one row per node: a peer that kicked the same node three times is still one decision to make
+      const latest = new Map<string, AuditEntry & { from: string }>();
+      for (const [from, entries] of Object.entries(fed.peerKicks))
+        for (const e of entries ?? [])
+          if (e.action === "member.kick" && mine.has(e.node) && e.node !== config.node) {
+            const seen = latest.get(e.node);
+            if (!seen || Date.parse(e.at) > Date.parse(seen.at)) latest.set(e.node, { ...e, from });
+          }
+      const adoptable = [...latest.values()];
+      return json<AdminState>({
+        node: config.node,
+        identity: ident.identity,
+        legacyAllowed: ALLOW_LEGACY,
+        members: fedMembers.members,
+        invites: fedMembers.invites,
+        bans: fedMembers.bans,
+        audit: fedMembers.audit.slice(0, 200),
+        meshMembers: fed.peerFederated,
+        adoptable,
+      });
+    }
+
     // ── state for the UI ────────────────────────────────────────────
     if (path === "/api/status") {
       return json<StatusResponse>({
         node: config.node,
+        identity: ident.identity,
+        legacyAllowed: ALLOW_LEGACY,
         session: process.env.HERDR_SESSION ?? null,
         invite: invite(),
         topology,
