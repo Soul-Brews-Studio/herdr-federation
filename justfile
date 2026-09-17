@@ -8,11 +8,13 @@
 #   just up                  build the console and run the node
 #   just overview            the node and its federation, at a glance
 #   just fed kick <node>     refuses, and shows you what it would remove
+#   just tray install        the menu-bar app
 #   just --list fed          one module's recipes
 
 mod node   'just/01-node.just'
 mod fed    'just/02-fed.just'
 mod deploy 'just/03-deploy.just'
+mod tray   'just/04-tray.just'
 
 default:
     @just --list

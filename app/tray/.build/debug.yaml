@@ -1,0 +1,81 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "FederationTray-arm64-apple-macosx-debug.exe": ["<FederationTray-arm64-apple-macosx-debug.exe>"]
+  "FederationTray-arm64-apple-macosx-debug.module": ["<FederationTray-arm64-apple-macosx-debug.module>"]
+  "PackageStructure": ["<PackageStructure>"]
+  "main": ["<FederationTray-arm64-apple-macosx-debug.exe>","<FederationTray-arm64-apple-macosx-debug.module>"]
+  "test": ["<FederationTray-arm64-apple-macosx-debug.exe>","<FederationTray-arm64-apple-macosx-debug.module>"]
+default: "main"
+nodes:
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray":
+    is-mutated: true
+commands:
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray-entitlement.plist":
+    tool: write-auxiliary-file
+    inputs: ["<entitlement-plist>","<com.apple.security.get-task-allow>"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray-entitlement.plist"]
+    description: "Write auxiliary file /opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray-entitlement.plist"
+
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/sources"]
+    description: "Write auxiliary file /opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/sources"
+
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.product/Objects.LinkFileList":
+    tool: write-auxiliary-file
+    inputs: ["<link-file-list>","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swift.o"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.product/Objects.LinkFileList"]
+    description: "Write auxiliary file /opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.product/Objects.LinkFileList"
+
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<FederationTray-arm64-apple-macosx-debug.exe>":
+    tool: phony
+    inputs: ["<FederationTray-arm64-apple-macosx-debug.exe-CodeSigning>"]
+    outputs: ["<FederationTray-arm64-apple-macosx-debug.exe>"]
+
+  "<FederationTray-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/Modules/FederationTray.swiftmodule"]
+    outputs: ["<FederationTray-arm64-apple-macosx-debug.module>"]
+
+  "C.FederationTray-arm64-apple-macosx-debug.exe":
+    tool: shell
+    inputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.product/Objects.LinkFileList"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray"]
+    description: "Linking ./.build/arm64-apple-macosx/debug/FederationTray"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-L","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug","-o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray","-module-name","FederationTray","-Xlinker","-no_warn_duplicate_libraries","-emit-executable","-Xlinker","-alias","-Xlinker","_FederationTray_main","-Xlinker","_main","-Xlinker","-rpath","-Xlinker","@loader_path","@/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.product/Objects.LinkFileList","-Xlinker","-rpath","-Xlinker","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift-6.2/macosx","-target","arm64-apple-macosx13.0","-Xlinker","-add_ast_path","-Xlinker","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/Modules/FederationTray.swiftmodule","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g"]
+
+  "C.FederationTray-arm64-apple-macosx-debug.exe-entitlements":
+    tool: shell
+    inputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray-entitlement.plist"]
+    outputs: ["<FederationTray-arm64-apple-macosx-debug.exe-CodeSigning>"]
+    description: "Applying debug entitlements to ./.build/arm64-apple-macosx/debug/FederationTray"
+    args: ["codesign","--force","--sign","-","--entitlements","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray-entitlement.plist","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray"]
+
+  "C.FederationTray-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/sources"]
+    outputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swift.o","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/Modules/FederationTray.swiftmodule"]
+    description: "Compiling Swift Module 'FederationTray' (5 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","FederationTray","-emit-dependencies","-emit-module","-emit-module-path","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/Modules/FederationTray.swiftmodule","-output-file-map","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/output-file-map.json","-incremental","-c","@/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/sources","-I","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx13.0","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j18","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-Xfrontend","-entry-point-function-name","-Xfrontend","FederationTray_main","-swift-version","5","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","tray"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Package.swift","/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

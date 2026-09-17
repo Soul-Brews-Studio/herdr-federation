@@ -1,0 +1,40 @@
+{
+  "": {
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/primary.swiftdeps"
+  },
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift": {
+    "dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.d",
+    "object": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swift.o",
+    "swiftmodule": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api~partial.swiftmodule",
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.swiftdeps",
+    "diagnostics": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Api.dia"
+  },
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift": {
+    "dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.d",
+    "object": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swift.o",
+    "swiftmodule": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config~partial.swiftmodule",
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.swiftdeps",
+    "diagnostics": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Config.dia"
+  },
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift": {
+    "dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.d",
+    "object": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swift.o",
+    "swiftmodule": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel~partial.swiftmodule",
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.swiftdeps",
+    "diagnostics": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/JoinPanel.dia"
+  },
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift": {
+    "dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.d",
+    "object": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swift.o",
+    "swiftmodule": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model~partial.swiftmodule",
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.swiftdeps",
+    "diagnostics": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/Model.dia"
+  },
+  "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift": {
+    "dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.d",
+    "object": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swift.o",
+    "swiftmodule": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main~partial.swiftmodule",
+    "swift-dependencies": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.swiftdeps",
+    "diagnostics": "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/debug/FederationTray.build/main.dia"
+  }
+}

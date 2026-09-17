@@ -1,0 +1,307 @@
+{
+  "builtTestProducts" : [
+
+  ],
+  "copyCommands" : {
+
+  },
+  "explicitTargetDependencyImportCheckingMode" : {
+    "none" : {
+
+    }
+  },
+  "generatedSourceTargetSet" : [
+
+  ],
+  "pluginDescriptions" : [
+
+  ],
+  "swiftCommands" : {
+    "C.FederationTray-arm64-apple-macosx-release.module" : {
+      "executable" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "fileList" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/sources",
+      "importPath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/Modules",
+      "inputs" : [
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/sources"
+        }
+      ],
+      "isLibrary" : false,
+      "moduleName" : "FederationTray",
+      "moduleOutputPath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/Modules/FederationTray.swiftmodule",
+      "objects" : [
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Api.swift.o",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Config.swift.o",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/JoinPanel.swift.o",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Model.swift.o",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/main.swift.o"
+      ],
+      "otherArguments" : [
+        "-target",
+        "arm64-apple-macosx13.0",
+        "-whole-module-optimization",
+        "-num-threads",
+        "18",
+        "-serialize-diagnostics",
+        "-O",
+        "-j18",
+        "-DSWIFT_PACKAGE",
+        "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+        "-module-cache-path",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/ModuleCache",
+        "-parseable-output",
+        "-Xfrontend",
+        "-entry-point-function-name",
+        "-Xfrontend",
+        "FederationTray_main",
+        "-swift-version",
+        "5",
+        "-plugin-path",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+        "-sdk",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-F",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-I",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-L",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+        "-g",
+        "-Xcc",
+        "-isysroot",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+        "-Xcc",
+        "-F",
+        "-Xcc",
+        "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+        "-Xcc",
+        "-fPIC",
+        "-Xcc",
+        "-g",
+        "-package-name",
+        "tray"
+      ],
+      "outputFileMapPath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/output-file-map.json",
+      "outputs" : [
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Api.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Config.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/JoinPanel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Model.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/main.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/Modules/FederationTray.swiftmodule"
+        }
+      ],
+      "prepareForIndexing" : false,
+      "sources" : [
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift",
+        "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift"
+      ],
+      "tempsPath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build",
+      "wholeModuleOptimization" : true
+    }
+  },
+  "swiftFrontendCommands" : {
+
+  },
+  "swiftTargetScanArgs" : {
+    "FederationTray" : [
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc",
+      "-module-name",
+      "FederationTray",
+      "-package-name",
+      "tray",
+      "-c",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift",
+      "-I",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/Modules",
+      "-target",
+      "arm64-apple-macosx13.0",
+      "-whole-module-optimization",
+      "-num-threads",
+      "18",
+      "-serialize-diagnostics",
+      "-O",
+      "-j18",
+      "-DSWIFT_PACKAGE",
+      "-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE",
+      "-module-cache-path",
+      "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/ModuleCache",
+      "-parseable-output",
+      "-Xfrontend",
+      "-entry-point-function-name",
+      "-Xfrontend",
+      "FederationTray_main",
+      "-swift-version",
+      "5",
+      "-plugin-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing",
+      "-sdk",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-F",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-I",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-L",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib",
+      "-g",
+      "-Xcc",
+      "-isysroot",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk",
+      "-Xcc",
+      "-F",
+      "-Xcc",
+      "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks",
+      "-Xcc",
+      "-fPIC",
+      "-Xcc",
+      "-g",
+      "-package-name",
+      "tray",
+      "-driver-use-frontend-path",
+      "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+    ]
+  },
+  "targetDependencyMap" : {
+    "FederationTray" : [
+
+    ]
+  },
+  "testDiscoveryCommands" : {
+
+  },
+  "testEntryPointCommands" : {
+
+  },
+  "traitConfiguration" : {
+    "default" : {
+
+    }
+  },
+  "writeCommands" : {
+    "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/sources" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<sources-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Api.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Config.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/JoinPanel.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/Model.swift"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/Sources/FederationTray/main.swift"
+        }
+      ],
+      "outputFilePath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/sources"
+    },
+    "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.product/Objects.LinkFileList" : {
+      "alwaysOutOfDate" : false,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<link-file-list>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Api.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Config.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/JoinPanel.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/Model.swift.o"
+        },
+        {
+          "kind" : "file",
+          "name" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.build/main.swift.o"
+        }
+      ],
+      "outputFilePath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/FederationTray.product/Objects.LinkFileList"
+    },
+    "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt" : {
+      "alwaysOutOfDate" : true,
+      "inputs" : [
+        {
+          "kind" : "virtual",
+          "name" : "<swift-get-version>"
+        },
+        {
+          "kind" : "file",
+          "name" : "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"
+        }
+      ],
+      "outputFilePath" : "/opt/Code/github.com/Soul-Brews-Studio/herdr-federation/app/tray/.build/arm64-apple-macosx/release/swift-version--58304C5D6DBC2206.txt"
+    }
+  }
+}
