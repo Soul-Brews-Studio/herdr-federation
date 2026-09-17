@@ -44,8 +44,12 @@ struct PeerView: Decodable {
 struct Pane: Decodable {
     var handle: String
     var pane: String
+    /// the agent herdr detected, or "shell" when it found none — a bare shell is
+    /// a pane, not an agent, and the fleet bar counts them apart
+    var kind: String?
     var status: String?
     var workspaceLabel: String?
+    var repo: String?
 }
 
 struct Invite: Decodable {

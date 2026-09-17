@@ -19,6 +19,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var config = Config.load()
@@ -31,14 +32,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var timer: Timer?
     let join = JoinPanelController()
 
+    // Watchfloor: the popover. The NSMenu stays, reachable with ⌥click, because
+    // a popover cannot hold twenty rows of submenu and the menu cannot hold a
+    // sparkline — neither replaces the other.
+    let watch = Watch()
+    let window = Window()
+    lazy var popover: NSPopover = {
+        let p = NSPopover()
+        p.contentViewController = NSHostingController(rootView: Watchfloor(w: watch))
+        // .semitransient, not .transient: measured, a .transient popover from a
+        // cold accessory app silently does nothing at all — it never becomes key,
+        // so the first click after switching apps appears to do nothing.
+        p.behavior = .semitransient
+        return p
+    }()
+
     func applicationDidFinishLaunching(_ n: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NSApp.mainMenu = editOnlyMainMenu()   // ⌘V in the join field routes through here
         item.button?.title = "⚯ fed"
-        item.menu = NSMenu()
+        // NOT item.menu: setting it makes every click open the menu and the
+        // button action never fires. The menu is shown explicitly on ⌥click.
+        item.button?.target = self
+        item.button?.action = #selector(clicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        watch.onConsole = { [weak self] in self?.openConsole() }
+        watch.onAdmin = { [weak self] in self?.openAdmin() }
+        watch.onRefresh = { [weak self] in self?.refreshNow() }
         rebuildMenu()
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refresh() }
+        timer = Timer.scheduledTimer(withTimeInterval: Self.cadence, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
     /// An accessory app gets no main menu, and without one AppKit has nowhere to
@@ -59,6 +82,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return main
     }
 
+    /// Poll cadence. The gap mark in the sparkline is derived from it, so the two
+    /// must come from one place or a normal tick can be drawn as an outage.
+    static let cadence: TimeInterval = 5
+
+    @objc func clicked() {
+        // ⌥ or right-click reaches the full menu; a plain click is the panel.
+        let e = NSApp.currentEvent
+        if e?.modifierFlags.contains(.option) == true || e?.type == .rightMouseUp {
+            rebuildMenu()
+            item.menu = menu
+            item.button?.performClick(nil)
+            item.menu = nil          // or the NEXT plain click would open the menu too
+            return
+        }
+        if popover.isShown { popover.performClose(nil); return }
+        guard let b = item.button else { return }
+        refresh()
+        popover.show(relativeTo: b.bounds, of: b, preferredEdge: .minY)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     // ── polling ──────────────────────────────────────────────────────
 
     func refresh() {
@@ -66,16 +110,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Api.fetch(NodeStatus.self, base, "/api/status") { [weak self] r in
             guard let self else { return }
             switch r {
-            case .success(let s): self.status = s; self.lastError = nil
-            case .failure(let e): self.status = nil; self.lastError = e.message
+            case .success(let s):
+                self.status = s
+                self.lastError = nil
+                if let st = s.stats {
+                    self.window.add(Sample(at: Date(),
+                                           pushed: st.pushed ?? 0, pushErrors: st.pushErrors ?? 0,
+                                           pullOk: st.pullOk ?? 0, pullErrors: st.pullErrors ?? 0))
+                }
+            case .failure(let e):
+                self.status = nil
+                self.lastError = e.message
+                // Do not keep sampling a node that is not answering: the series
+                // would flatline at zero and read as "quiet", not "down".
+                self.window.clear()
             }
+            self.publish()
             self.rebuildMenu()
         }
         Api.fetch(AdminState.self, base, "/api/admin") { [weak self] r in
             guard let self else { return }
             if case .success(let a) = r { self.admin = a } else { self.admin = nil }
+            self.publish()
             self.rebuildMenu()
         }
+    }
+
+    /// One snapshot at a time. Publishing field by field lets the view paint a
+    /// frame where the verdict disagrees with the rows beneath it.
+    func publish() {
+        let push = window.series(\.pushed, \.pushErrors, cadence: Self.cadence)
+        let pull = window.series(\.pullOk, \.pullErrors, cadence: Self.cadence)
+        watch.status = status
+        watch.admin = admin
+        watch.offline = lastError
+        watch.push = push
+        watch.pull = pull
+        watch.url = config.node.url
+        watch.verdict = Verdict.of(status: status, admin: admin, push: push, pull: pull, offline: lastError)
     }
 
     // ── formatting ───────────────────────────────────────────────────
@@ -147,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // ── the menu ─────────────────────────────────────────────────────
 
+    var menu = NSMenu()
+
     func rebuildMenu() {
         let m = NSMenu()
         let node = config.node
@@ -157,7 +231,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let bans = admin?.bans ?? []
         let live = invites.filter { $0.status == "active" }
 
-        item.button?.title = up ? "⚯ \(members.count)" : "⚯ ×"
+        // The title is the ambient half of this app. It must say the verdict, not
+        // a count that is the same whether the mesh is healthy or on fire.
+        switch watch.verdict.level {
+        case .healthy: item.button?.title = "⚯ \(members.count)"
+        case .degraded: item.button?.title = "⚯ ▲"
+        case .down: item.button?.title = "⚯ ✕"
+        case .none: item.button?.title = "⚯ ○"
+        }
+        _ = up
 
         info(m, "Node: \(status?.node ?? node.name) — \(node.url)")
         if let s = status {
@@ -325,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(.separator())
         action(m, "Quit Federation Tray", #selector(quit), "q")
 
-        item.menu = m
+        menu = m
     }
 
     // ── actions ──────────────────────────────────────────────────────
