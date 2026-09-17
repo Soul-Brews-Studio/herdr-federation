@@ -87,7 +87,13 @@ export class Federation {
   addPeer(name: string, url: string) {
     const existing = this.#peers.find((p) => p.name === name);
     if (existing) {
-      if (!existing.url || !this.health[name]?.ok) existing.url = url;
+      // Replace an address we already hold only when it is KNOWN BAD. `!ok` was
+      // wrong: health is undefined until the first sync completes, so a
+      // redemption arriving in that window — which is exactly when a node has
+      // just restarted — overwrote a working LAN address with an advertised one
+      // the peer cannot reach. Measured on white after a restart: m5's entry went
+      // from 192.168.1.191 to its NetBird IP and every pull timed out.
+      if (!existing.url || this.health[name]?.ok === false) existing.url = url;
     } else this.#peers.push({ name, url });
     this.config.peers = this.#peers.map(({ name: n, url: u }) => ({ name: n, url: u }));
   }

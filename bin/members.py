@@ -60,6 +60,27 @@ def show_members(state):
         print(f"  {i.get('url') or i['id']} " + paint(f"uses {i['uses']}/{cap}", "dim"))
 
 
+def show_member(state, node):
+    """One member, as the kick/ban refusal shows them before doing anything."""
+    hit = [m for m in state.get("members") or [] if m["node"] == node]
+    if not hit:
+        print(paint("    %s is not a member of this node — nothing to kick" % node, "dim"))
+        return
+    for m in hit:
+        via = " via invite %s" % m["viaInvite"] if m.get("viaInvite") else ""
+        key = m.get("fingerprint") or paint("no key (legacy peer)", "warn")
+        print("    %s · key %s · joined %s%s" % (paint(m["node"], "ok"), key, m["joinedAt"], via))
+
+
+def show_bans(state):
+    bans = state.get("bans") or []
+    if not bans:
+        print(paint("    nobody is banned here", "dim"))
+        return
+    for b in bans:
+        print("    %s · %s" % (paint(b["node"], "bad"), b.get("reason") or "no reason given"))
+
+
 def show_audit(data):
     for e in data.get("audit", []):
         tone = "bad" if e["action"] in ("member.ban", "redeem.reject") else "warn" if "kick" in e["action"] else "ok"
@@ -100,4 +121,9 @@ if __name__ == "__main__":
         payload = json.load(sys.stdin)
         if "error" in payload and mode != "steps":
             sys.exit(paint(payload["error"], "bad"))
-        {"invite": show_invite, "members": show_members, "audit": show_audit, "steps": show_steps}[mode](payload)
+        if mode == "member":
+            show_member(payload, sys.argv[2])
+        elif mode == "bans":
+            show_bans(payload)
+        else:
+            {"invite": show_invite, "members": show_members, "audit": show_audit, "steps": show_steps}[mode](payload)

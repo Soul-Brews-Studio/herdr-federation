@@ -123,14 +123,41 @@ obeying any other node — and one compromised node could then empty the mesh wi
 entitled to refuse. Kicks are published instead; a peer sees them on its admin page and
 adopts them with a click, the way a Matrix homeserver keeps its own ACL.
 
+The justfile is split one module per concern — `node`, `fed`, `deploy` — with
+reads free and every write refusing until it is confirmed:
+
 ```sh
-just invite                 # 24h, unlimited uses  ·  just invite 24 1 → single use
-just redeem <invite-link>   # tell this node to go join theirs
-just members                # who federates here, what the mesh reports, who is banned
-just kick <node> "reason"   # their token dies here
-just ban  <node> "reason"   # …and their key is pinned
-just audit                  # every decision, with the steps it took
+just                        # modules and top-level recipes
+just up                     # build the console, run the node
+just overview               # the process and the federation in one screen
+
+just fed invite             # 24h, unlimited uses · just fed invite 24 1 → single use
+just fed redeem <link>      # tell this node to go join theirs
+just fed members            # who federates here, what the mesh reports, who is banned
+just fed audit              # every decision, with the steps it took
+
+just fed kick <node>        # REFUSES, and prints who it would remove
+just fed kick <node> CONFIRM=yes
+just fed ban  <node> CONFIRM=yes
+just deploy host <target> CONFIRM=yes
 ```
+
+A bare `just fed kick white` prints the member on record — key, join time, which
+invite they came in through — and the command that would mean it. Nothing
+changes. The same shape guards `ban`, `unban` and `deploy host`.
+
+Two things about `just` that cost real time here, written down so they do not
+again:
+
+- **A `mod` recipe runs with its cwd set to the module file's directory.**
+  `justfile_directory()` stays at the root, but `pwd` does not, so `bun run
+  src/server.ts` in a module looks inside `just/`. `set working-directory := '..'`
+  at the top of each module fixes it once; `import` does not move the cwd at all.
+- **`NAME=value` after a recipe name is positional, not a variable override.**
+  `just fed kick white CONFIRM=yes` passes the literal string `CONFIRM=yes` as
+  the parameter, so a naive `[ "$CONFIRM" != "yes" ]` guard never opens and the
+  documented command always refuses. These recipes strip the prefix, so both
+  `CONFIRM=yes` and a bare `yes` work.
 
 ## Security
 
