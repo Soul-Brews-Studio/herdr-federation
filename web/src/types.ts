@@ -12,6 +12,7 @@ export type {
   BroadcastRequest,
   BroadcastResponse,
   BroadcastResult,
+  FedEdge,
   CallRecord,
   CallsResponse,
   ErrorResponse,

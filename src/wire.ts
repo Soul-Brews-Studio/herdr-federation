@@ -255,6 +255,37 @@ export type AuditEntry = {
   steps: AuditStep[];
 };
 
+/**
+ * One edge of the federation, with BOTH halves of the relationship.
+ *
+ * Computed on the node rather than in each client, because the CLI map and the
+ * web map must never disagree about who holds whom — and because `stale` is a
+ * judgement about data freshness that only the node has the inputs for.
+ */
+export type FedEdge = {
+  peer: string;
+  url: string;
+  /** we hold them as a member */
+  ours: boolean;
+  /** they report holding us */
+  theirs: boolean;
+  /** both, AND the link is currently working — see `stale` */
+  mutual: boolean;
+  /**
+   * What a peer reports about itself arrives only on a successful pull, so while
+   * the link is failing the cache keeps answering. A stale edge may claim a
+   * mutuality that no longer exists.
+   */
+  stale: boolean;
+  /** panes this peer published on its last successful state */
+  panes: number;
+  ok?: boolean;
+  consecutive?: number;
+  lastSeen?: string;
+  lastOkAt?: string;
+  lastError?: string;
+};
+
 /** GET /api/admin */
 export type AdminState = {
   node: string;
@@ -269,6 +300,14 @@ export type AdminState = {
   meshMembers: Record<string, MemberRecord[]>;
   /** kicks other nodes published and we have not adopted */
   adoptable: (AuditEntry & { from: string })[];
+  /** the mesh as a graph: one entry per peer, both directions of each relationship */
+  edges: FedEdge[];
+  /** this node's own agent panes */
+  panes: Member[];
+  /** each peer's agent panes, as that peer last published them */
+  peerPanes: Record<string, Member[]>;
+  /** heard from, never joined — nodes that reached us without a membership */
+  heard: KnownNode[];
 };
 
 /** POST /api/invites */

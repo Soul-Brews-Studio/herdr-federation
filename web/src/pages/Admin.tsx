@@ -3,6 +3,7 @@ import { api } from "../api";
 import { AuditLog } from "../components/admin/AuditLog";
 import { InvitesTable } from "../components/admin/InvitesTable";
 import { BansTable, MembersTable } from "../components/admin/MembersTable";
+import { MeshMap } from "../components/admin/MeshMap";
 import { ProcessView } from "../components/admin/ProcessView";
 import type { AdminState } from "../types";
 
@@ -14,7 +15,7 @@ import type { AdminState } from "../types";
  * above these nodes, so nothing here can speak for anyone else's door.
  */
 
-const TABS = ["overview", "members", "invites", "bans", "audit"] as const;
+const TABS = ["overview", "map", "members", "invites", "bans", "audit"] as const;
 type Tab = (typeof TABS)[number];
 
 export function Admin() {
@@ -103,6 +104,7 @@ export function Admin() {
 
         <main className="min-w-0 overflow-auto p-4">
           {tab === "overview" && <ProcessView audit={state.audit} />}
+          {tab === "map" && <MeshMap state={state} />}
           {tab === "members" && <MembersTable state={state} onChanged={load} />}
           {tab === "invites" && <InvitesTable state={state} onChanged={load} />}
           {tab === "bans" && <BansTable bans={state.bans} onChanged={load} />}

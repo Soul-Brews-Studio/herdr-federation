@@ -376,6 +376,35 @@ const server = Bun.serve<PaneSocket, {}>({
             if (!seen || Date.parse(e.at) > Date.parse(seen.at)) latest.set(e.node, { ...e, from });
           }
       const adoptable = [...latest.values()];
+      // One place computes reciprocity, so the CLI map and the web map cannot
+      // drift. `stale` is the important half: a peer's reported membership only
+      // arrives on a successful pull, and the cache keeps answering while the
+      // link is down — measured, a node kept drawing a mutual edge to a peer
+      // that had kicked it, while every pull returned 401.
+      const edges = fed.peers.map((p) => {
+        const h = fed.health[p.name] ?? { consecutive: 0 };
+        const stale = (h.consecutive ?? 0) > 0;
+        const ours = mine.has(p.name);
+        const theirs = (fed.peerFederated[p.name] ?? []).some((m) => m.node === config.node);
+        return {
+          peer: p.name,
+          url: p.url,
+          ours,
+          theirs,
+          mutual: ours && theirs && !stale,
+          stale,
+          // agents, not panes: a bare shell is a pane herdr found no agent in, and
+          // the map's list filters the same way — two counts that disagree read as a bug
+          panes: (fed.peerMembers[p.name] ?? []).filter((m) => m.kind && m.kind !== "shell").length,
+          ok: h.ok,
+          consecutive: h.consecutive ?? 0,
+          lastSeen: h.lastSeen,
+          lastOkAt: h.lastOkAt,
+          lastError: h.lastError,
+        };
+      });
+      const heard = Object.values(fed.known).filter((k) => !fed.peers.some((p) => p.name === k.node));
+
       return json<AdminState>({
         node: config.node,
         identity: ident.identity,
@@ -386,6 +415,10 @@ const server = Bun.serve<PaneSocket, {}>({
         audit: fedMembers.audit.slice(0, 200),
         meshMembers: fed.peerFederated,
         adoptable,
+        edges,
+        heard,
+        panes: members,
+        peerPanes: fed.peerMembers,
       });
     }
 
