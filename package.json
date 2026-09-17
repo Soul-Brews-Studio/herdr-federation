@@ -1,0 +1,17 @@
+{
+  "name": "herdr-federation",
+  "version": "26.9.18-alpha.11",
+  "description": "A federation of Herdr machines with one console — watch any agent's pane, type into it, and message a squad across machines.",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/Soul-Brews-Studio/herdr-federation.git" },
+  "homepage": "https://github.com/Soul-Brews-Studio/herdr-federation#readme",
+  "bin": { "herdr-federation": "./bin/herdr-federation.ts" },
+  "type": "module",
+  "files": ["bin/", "src/", "web/dist/", "peers.example.json", "README.md"],
+  "engines": { "bun": ">=1.1.0" },
+  "scripts": {
+    "build": "cd web && bun install --frozen-lockfile && bun run build",
+    "prepublishOnly": "bun run build"
+  },
+  "keywords": ["herdr", "tmux", "agents", "federation", "terminal", "claude-code"]
+}

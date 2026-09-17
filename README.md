@@ -10,6 +10,17 @@ Built and run across four nodes on a private NetBird mesh — two of them the sa
 host under different Unix users, which is why a node is addressed by name, never
 by host.
 
+> **Alpha — `v26.9.18-alpha.11`.** This runs a real fleet every day, and it is
+> still early software with the sharp edges written down rather than smoothed
+> over. Read [Known gaps](#known-gaps) before you point it at anything you care
+> about: the console has **no authentication**, so whoever reaches the port is
+> that node's admin, and `FED_ALLOW_LEGACY` still defaults to on. Bind it to
+> loopback or a private mesh, never to the internet.
+>
+> Versioning is CalVer — `v{yy}.{m}.{d}-alpha.{HMM}`, where `HMM` is the
+> wall-clock hour and minute as one integer (00:11 → `11`, 09:37 → `937`), in
+> Asia/Bangkok. No two cuts in a minute, so tags never collide on merge order.
+
 ## Shape
 
 ```
@@ -119,6 +130,45 @@ stopped *us* calling *them* and left their door into us open. They can return th
 invite that is still valid. **Banning** additionally pins their ed25519 public key, so no
 invite helps.
 
+### The hub model — join one node, see everyone it sees
+
+Membership is pairwise, but **visibility is not**. A node republishes the rosters of
+its direct peers, so joining one node shows you every agent that node can see:
+
+```
+● black                         ← holds exactly one link, to m5
+└─ ⇄ ● m5  34 panes
+     ├─ ◌ ● white      1 pane · via m5
+     └─ ◌ ● nat-white  1 pane · via m5
+```
+
+`⇄` is an edge this node holds, judged for reciprocity. `◌` is something it can only
+*see*. Four rules keep the difference honest:
+
+- **Strictly one hop.** A node republishes only what it pulled directly, never what it
+  was itself relayed, so a ring of nodes cannot echo state around forever.
+- **A direct link beats a relayed one**, and a node never relays itself back to itself.
+- **Rebuilt from scratch on every pull.** When a hub kicks a node, it is gone from every
+  spoke on the next sync — one kick at the hub, gone everywhere, with no adopt step. It
+  does *not* kick that node off the spokes: a spoke that holds its own membership keeps
+  it, because enforcement stays local.
+- **Relayed health is the hub's health**, and is labelled as such. A hub failing to reach
+  a third machine is not your link being down.
+
+Acting through a hub is authenticated on both legs — `/api/fed/hey` and `/api/fed/pane`
+for a peer holding your token, `/api/fed/relay` and `/api/fed/pane-relay` for a spoke,
+both of which refuse to relay a relay. What a hub **cannot** give you is a live pane
+stream: `/ws/pane/<id>` on the hub would open the hub's own pane of that id. Through a
+hub you get *see and send*, not *watch*.
+
+With the [`herdr` maw plugin](https://github.com/Soul-Brews-Studio/maw-herdr-plugin):
+
+```sh
+maw herdr federation          # the mesh, with relayed nodes under their hub
+maw herdr ls --federation     # every agent on every reachable node
+maw herdr peek <node>:<pane>  # read a pane anywhere in the federation
+```
+
 **A kick is enforced on this node only**, and that is the honest answer rather than a
 shortcut. There is no server above these nodes, so a mesh-wide kick would mean every node
 obeying any other node — and one compromised node could then empty the mesh with nobody
@@ -188,3 +238,8 @@ already there for it.
 - `pane.read` returns plain text, so colour is dropped; an ANSI-preserving renderer is the
   next step.
 - Federation messages are a flat log capped at 500 entries, no channels.
+- Anything that reads `status.peers` as "links this node keeps" now also gets relayed
+  rows and must filter on `via`. The three readers in this repo do; a fourth would get
+  it wrong silently, which argues for renaming the field.
+- Throughput in the tray counts request and response **bodies** only — no headers, no
+  TLS — so it is payload rate, not what a network interface would report.
