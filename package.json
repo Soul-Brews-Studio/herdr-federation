@@ -1,6 +1,6 @@
 {
   "name": "herdr-federation",
-  "version": "26.9.18-alpha.11",
+  "version": "26.9.18-alpha.17",
   "description": "A federation of Herdr machines with one console — watch any agent's pane, type into it, and message a squad across machines.",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/Soul-Brews-Studio/herdr-federation.git" },

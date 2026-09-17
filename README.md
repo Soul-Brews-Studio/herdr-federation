@@ -10,7 +10,7 @@ Built and run across four nodes on a private NetBird mesh — two of them the sa
 host under different Unix users, which is why a node is addressed by name, never
 by host.
 
-> **Alpha — `v26.9.18-alpha.11`.** This runs a real fleet every day, and it is
+> **Alpha — `v26.9.18-alpha.17`.** This runs a real fleet every day, and it is
 > still early software with the sharp edges written down rather than smoothed
 > over. Read [Known gaps](#known-gaps) before you point it at anything you care
 > about: the console has **no authentication**, so whoever reaches the port is
