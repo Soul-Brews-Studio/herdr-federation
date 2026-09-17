@@ -54,10 +54,30 @@ const flowOf = (e: AuditEntry): keyof typeof CANON | null => {
 };
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+const when = (iso: string) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+const ago = (iso: string) => {
+  const s = Math.round((Date.now() - Date.parse(iso)) / 1000);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.round(s / 60)}m ago`;
+  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+};
+
+/** Did the run get all the way through? A failed run stops at the step that refused. */
+const failedAt = (e: AuditEntry) => e.steps.find((s) => !s.ok);
+
+/**
+ * One line that tells two runs apart. Two joins from the same node, seconds
+ * apart, are identical on a wall clock — which invite they spent is the thing
+ * that actually differs, so the server stamps that on the entry.
+ */
+const describe = (e: AuditEntry) => e.summary ?? e.reason ?? "";
 
 function Flow({ flow, runs }: { flow: keyof typeof CANON; runs: AuditEntry[] }) {
   const [pick, setPick] = useState(0);
   const run = runs[Math.min(pick, runs.length - 1)];
+  const bad = run ? failedAt(run) : undefined;
   const canon = CANON[flow];
   const steps = run
     ? run.steps
@@ -65,28 +85,45 @@ function Flow({ flow, runs }: { flow: keyof typeof CANON; runs: AuditEntry[] }) 
 
   return (
     <section className="min-w-0 rounded-lg border border-edge bg-panel">
-      <header className="flex flex-wrap items-baseline gap-2 border-b border-edge px-3 py-2">
-        <b className="font-semibold">{canon.title}</b>
-        {run ? (
-          <span className="text-[11px] text-faint">
-            {run.node} · {time(run.at)}
-          </span>
-        ) : (
-          <span className="text-[11px] text-faint">has not happened on this node yet</span>
-        )}
-        {runs.length > 1 && (
-          <select
-            value={pick}
-            onChange={(e) => setPick(Number(e.target.value))}
-            aria-label="pick a run"
-            className="ml-auto rounded border border-edge-bright bg-[#0b0e13] px-1.5 py-0.5 text-[11px] text-dim"
-          >
-            {runs.map((r, i) => (
-              <option key={r.id} value={i}>
-                {r.node} · {time(r.at)}
-              </option>
-            ))}
-          </select>
+      <header className="border-b border-edge px-3 py-2">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <b className="font-semibold">{canon.title}</b>
+          {run ? (
+            <span className={`rounded px-1.5 py-px text-[10px] ${bad ? "bg-[#3a1b1b] text-bad" : "bg-[#14301f] text-ok"}`}>
+              {bad ? `failed · ${bad.label}` : "completed"}
+            </span>
+          ) : (
+            <span className="text-[11px] text-faint">has not happened on this node yet</span>
+          )}
+          {runs.length > 1 && (
+            <select
+              value={pick}
+              onChange={(e) => setPick(Number(e.target.value))}
+              aria-label="pick a run"
+              className="ml-auto max-w-[min(60%,22rem)] truncate rounded border border-edge-bright bg-[#0b0e13] px-1.5 py-0.5 text-[11px] text-dim"
+            >
+              {runs.map((r, i) => (
+                <option key={r.id} value={i}>
+                  {failedAt(r) ? "✕" : "✓"} {time(r.at)} · {r.node}
+                  {describe(r) ? ` · ${describe(r)}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {run && (
+          <div className="pt-0.5 text-[11px] text-faint">
+            <b className="font-normal text-dim">{run.node}</b> · {when(run.at)} · {ago(run.at)} ·{" "}
+            <span title="audit entry id">#{run.id}</span>
+            {describe(run) && <> · {describe(run)}</>}
+            {runs.length > 1 && (
+              <>
+                {" "}
+                · run {pick + 1} of {runs.length}
+              </>
+            )}
+          </div>
         )}
       </header>
 
@@ -109,7 +146,9 @@ function Flow({ flow, runs }: { flow: keyof typeof CANON; runs: AuditEntry[] }) 
         ))}
       </ol>
 
-      {run?.reason && <div className="border-t border-edge px-3 py-1.5 text-[11px] text-warn">reason: {run.reason}</div>}
+      {run?.reason && run.reason !== run.summary && (
+        <div className="border-t border-edge px-3 py-1.5 text-[11px] text-warn">reason: {run.reason}</div>
+      )}
     </section>
   );
 }

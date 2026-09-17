@@ -226,6 +226,13 @@ export type AuditEntry = {
   /** the node that acted — always the node that wrote the entry */
   by: string;
   reason?: string;
+  /**
+   * The one fact that tells this entry apart from its neighbours — which invite,
+   * which key, which failure. Set where the entry is made, because the UI would
+   * otherwise have to pattern-match prose out of `steps[].detail` to say anything
+   * beyond a wall clock time.
+   */
+  summary?: string;
   steps: AuditStep[];
 };
 

@@ -320,6 +320,7 @@ const server = Bun.serve<PaneSocket, {}>({
         const entry = fedMembers.adopt(
           { node: out.node, pubkey: out.pubkey, url: out.url ?? target, ourToken: offerToken, theirToken: out.memberToken },
           [...steps, { n: 5, label: "store the membership and start syncing", ok: true, detail: `${out.node} is now a member of ${config.node}` }],
+          `we joined them at ${target} · their invite ${token.trim().slice(0, 8)}…`,
         );
         fed.addPeer(out.node, out.url ?? target);
         await saveConfig();
@@ -328,7 +329,7 @@ const server = Bun.serve<PaneSocket, {}>({
       } catch (err) {
         const detail = String(err).replace(/^Error:\s*/, "");
         steps.push({ n: 4, label: "present the invite", wire: `POST ${target}/api/fed/redeem`, ok: false, detail });
-        fedMembers.record("redeem.reject", target, steps, detail);
+        fedMembers.record("redeem.reject", target, steps, detail, `at ${target}`);
         return json<ErrorResponse>({ error: detail }, 400);
       }
     }

@@ -47,9 +47,13 @@ export function AuditLog({ audit }: { audit: AuditEntry[] }) {
               <span className={`text-[11px] ${TONE[e.action]}`}>{e.action}</span>
               <span className="truncate">
                 {e.node}
-                {e.reason ? <span className="text-[11px] text-faint"> · {e.reason}</span> : null}
+                {e.summary ? <span className="text-[11px] text-faint"> · {e.summary}</span> : null}
+                {e.reason && e.reason !== e.summary ? <span className="text-[11px] text-warn"> · {e.reason}</span> : null}
               </span>
-              <span className="text-[11px] text-faint">{open === e.id ? "−" : `${e.steps.length} steps`}</span>
+              <span className="text-[11px] text-faint">
+                {e.steps.some((s) => !s.ok) && <span className="text-bad">✕ </span>}
+                {open === e.id ? "−" : `${e.steps.length} steps`}
+              </span>
             </button>
             {open === e.id && (
               <ol className="border-t border-edge bg-[#0b0e13] px-3 py-2">

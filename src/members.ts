@@ -86,8 +86,8 @@ export class Members {
   /* ── audit ──────────────────────────────────────────────────────────── */
 
   /** Record what happened, step by step, so the admin page can replay it rather than describe it. */
-  record(action: AuditAction, node: string, steps: AuditStep[], reason?: string): AuditEntry {
-    const entry: AuditEntry = { id: id(), at: new Date().toISOString(), action, node, by: this.node, reason, steps };
+  record(action: AuditAction, node: string, steps: AuditStep[], reason?: string, summary?: string): AuditEntry {
+    const entry: AuditEntry = { id: id(), at: new Date().toISOString(), action, node, by: this.node, reason, summary, steps };
     this.#audit.push(entry);
     this.#audit = this.#audit.slice(-AUDIT_CAP);
     void this.save();
@@ -140,7 +140,7 @@ export class Members {
       { n: 1, label: "mint a secret", ok: true, detail: `24 bytes, base64url · id ${inv.id}` },
       { n: 2, label: "set the terms", ok: true, detail: `${inv.expiresAt ? `expires ${inv.expiresAt}` : "never expires"} · ${inv.maxUses ?? "unlimited"} uses` },
       { n: 3, label: "hand out the link", wire: link.url ?? "(this node is not reachable — no link)", ok: !!link.url },
-    ]);
+    ], undefined, `invite ${inv.id} · ${inv.expiresAt ? `${hours}h` : "no expiry"} · ${inv.maxUses ?? "∞"} uses`);
     return link;
   }
 
@@ -151,7 +151,7 @@ export class Members {
     this.record("invite.revoke", this.node, [
       { n: 1, label: "mark the invite dead", ok: true, detail: `id ${inv.id} · used ${inv.uses}×` },
       { n: 2, label: "members who already joined keep their membership", ok: true, detail: inv.usedBy.map((u) => u.node).join(", ") || "nobody used it" },
-    ]);
+    ], undefined, `invite ${inv.id} · used ${inv.uses}×`);
     return this.#link(inv);
   }
 
@@ -198,7 +198,7 @@ export class Members {
     const steps: AuditStep[] = [];
     const fail = (code: RedeemFailure, label: string, detail: string): never => {
       steps.push({ n: steps.length + 1, label, ok: false, detail });
-      this.record("redeem.reject", req.node ?? "unknown", steps, code);
+      this.record("redeem.reject", req.node ?? "unknown", steps, code, detail);
       throw new RedeemError(code, detail);
     };
 
@@ -238,12 +238,18 @@ export class Members {
     });
     steps.push({ n: 5, label: "issue a member token and store the membership", ok: true, detail: `invite ${inv!.id} now used ${inv!.uses}/${inv!.maxUses ?? "∞"}` });
 
-    const entry = this.record("member.join", req.node, steps);
+    const entry = this.record("member.join", req.node, steps, undefined, `invite ${inv!.id} · key ${fingerprint(req.pubkey)}`);
     return { memberToken: ourToken, entry };
   }
 
-  /** The other half: we redeemed somewhere, and now record who we joined. */
-  adopt(peer: { node: string; pubkey: string; url?: string; ourToken: string; theirToken: string }, steps: AuditStep[]) {
+  /**
+   * The other half: we redeemed somewhere, and now record who we joined.
+   *
+   * `summary` comes from the caller because the distinguishing fact on this side
+   * is which invite we spent — and that invite belongs to the other node, so it
+   * has no id we can read. Two joins to the same peer are otherwise identical.
+   */
+  adopt(peer: { node: string; pubkey: string; url?: string; ourToken: string; theirToken: string }, steps: AuditStep[], summary?: string) {
     this.#upsert({
       node: peer.node,
       pubkey: peer.pubkey,
@@ -253,7 +259,7 @@ export class Members {
       ourToken: peer.ourToken,
       theirToken: peer.theirToken,
     });
-    return this.record("member.join", peer.node, steps);
+    return this.record("member.join", peer.node, steps, undefined, summary ?? `we joined them · key ${fingerprint(peer.pubkey)}`);
   }
 
   /**
@@ -291,7 +297,7 @@ export class Members {
       { n: 2, label: "their token stops authenticating", ok: true, detail: "next /api/fed/* call from them answers 401" },
       { n: 3, label: "stop pushing and pulling with them", ok: true, detail: `${node} removed from peers.json` },
       { n: 4, label: "publish the kick", ok: true, detail: adopted ? `adopted from ${adopted}` : "peers may adopt it; nothing makes them" },
-    ], reason);
+    ], reason, adopted ? `adopted from ${adopted}` : reason || (member.viaInvite ? `had joined via invite ${member.viaInvite}` : "no reason given"));
   }
 
   /** Ban: the same as a kick, plus the pubkey is pinned so no invite lets it back. */
@@ -304,7 +310,7 @@ export class Members {
     return this.record("member.ban", node, [
       { n: 1, label: "pin the key", ok: true, detail: pubkey ? `${fingerprint(pubkey)} — every future redeem from this key is refused` : "no key on record (legacy peer) — the node NAME is pinned instead" },
       { n: 2, label: "a valid invite no longer helps them", ok: true, detail: "this is the only difference from a kick" },
-    ], reason);
+    ], reason, pubkey ? `key ${fingerprint(pubkey)} pinned` : "node name pinned (no key on record)");
   }
 
   unban(node: string): AuditEntry | undefined {
@@ -315,7 +321,7 @@ export class Members {
     return this.record("member.unban", node, [
       { n: 1, label: "unpin the key", ok: true, detail: ban.pubkey ? fingerprint(ban.pubkey) : node },
       { n: 2, label: "they still need a valid invite to return", ok: true, detail: "unban is not an invite" },
-    ]);
+    ], undefined, ban.pubkey ? `key ${fingerprint(ban.pubkey)} unpinned` : `${node} unpinned`);
   }
 
   adoptKick({ node, from, reason }: AdoptRequest & { node: string; from: string }) {
