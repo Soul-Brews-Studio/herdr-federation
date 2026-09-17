@@ -19,6 +19,18 @@ export type FedMessage = {
 
 export type Peer = { name: string; url: string; via?: string };
 
+export type PeerHealth = {
+  ok?: boolean;
+  lastError?: string;
+  lastErrorAt?: string;
+  lastSeen?: string;
+  lastOkAt?: string;
+  /** failed attempts since the last success — 0 means the link is fine right now */
+  consecutive: number;
+  /** the address that last completed a sync; evidence, versus an advertised claim */
+  lastOkUrl?: string;
+};
+
 /** what a peer publishes about its panes; the shape our own /api/fed/state emits */
 export type PeerMember = {
   handle: string;
@@ -45,7 +57,14 @@ export class Federation {
   #seen = new Set<string>();
   #seq = 0;
   #peers: Peer[];
-  health: Record<string, { ok?: boolean; lastError?: string; lastSeen?: string }> = {};
+  /**
+   * Per-peer health, and the only honest answer to "is this link working NOW".
+   *
+   * `consecutive` is what a UI should read: lifetime totals cannot tell an
+   * outage an hour ago from one happening this second. Measured: m5 sat at
+   * `errors 1676` for an hour after white came back, beside a peer marked ok.
+   */
+  health: Record<string, PeerHealth> = {};
   /**
    * Nodes we have heard from but cannot reach back. A one-way link is normal
    * here (userspace-mode NetBird), and the federation should still show them.
@@ -54,7 +73,13 @@ export class Federation {
   /** each peer's own roster, as that node reported it */
   peerMembers: Record<string, PeerMember[]> = {};
   peerUi: Record<string, string> = {};
-  stats = { pushed: 0, pulled: 0, errors: 0, startedAt: new Date().toISOString() };
+  /**
+   * Lifetime totals. `pushed` and `pullOk` count REQUESTS; `pulled` counts
+   * MESSAGES ingested, which is a different unit and is legitimately 0 whenever
+   * peers have nothing new. Printing "pushed 1143 · pulled 0" side by side read
+   * as a one-way failure when nothing was wrong — hence the separate pullOk.
+   */
+  stats = { pushed: 0, pushErrors: 0, pullOk: 0, pullErrors: 0, pulled: 0, errors: 0, startedAt: new Date().toISOString() };
 
   /** what each peer reports about its own membership — read-only, for the mesh view */
   peerFederated: Record<string, MemberRecord[]> = {};
@@ -87,13 +112,24 @@ export class Federation {
   addPeer(name: string, url: string) {
     const existing = this.#peers.find((p) => p.name === name);
     if (existing) {
-      // Replace an address we already hold only when it is KNOWN BAD. `!ok` was
-      // wrong: health is undefined until the first sync completes, so a
-      // redemption arriving in that window — which is exactly when a node has
-      // just restarted — overwrote a working LAN address with an advertised one
-      // the peer cannot reach. Measured on white after a restart: m5's entry went
-      // from 192.168.1.191 to its NetBird IP and every pull timed out.
-      if (!existing.url || this.health[name]?.ok === false) existing.url = url;
+      // NEVER trade an address that has worked for one that merely claims to.
+      //
+      // Two earlier rules were both wrong. "replace unless currently ok" broke
+      // right after a restart, when health is undefined. "replace when KNOWN
+      // BAD" broke too, and worse: a link is known-bad for reasons that have
+      // nothing to do with the address — m5 kicked white, so white's pulls 401'd,
+      // so white took m5's advertised NetBird IP and replaced the LAN address
+      // that had been working. m5 runs NetBird in userspace mode, which
+      // blackholes inbound to that IP, so the "repair" made the link permanently
+      // unreachable. Measured twice.
+      //
+      // An address that has ever completed a sync is evidence; an advertised one
+      // is a claim. Evidence wins, and a node only ever advertises ONE address
+      // while a peer may be the only one who knows the reachable one.
+      const proven = this.health[name]?.lastOkUrl;
+      if (!existing.url) existing.url = url;
+      else if (!proven) existing.url = url;
+      else if (existing.url !== proven) existing.url = proven;
     } else this.#peers.push({ name, url });
     this.config.peers = this.#peers.map(({ name: n, url: u }) => ({ name: n, url: u }));
   }
@@ -196,6 +232,20 @@ export class Federation {
     return added;
   }
 
+  /**
+   * Record one attempt. Merging matters: push and pull run in the same cycle, so
+   * assigning a whole record let whichever finished last erase the other's
+   * verdict — a link failing one way flapped green every other tick.
+   */
+  #mark(peer: string, ok: boolean, error?: string) {
+    const now = new Date().toISOString();
+    const prev = this.health[peer] ?? { consecutive: 0 };
+    this.health[peer] = ok
+      ? { ...prev, ok: true, lastSeen: now, lastOkAt: now, consecutive: 0, lastError: undefined, lastErrorAt: undefined,
+          lastOkUrl: this.#peers.find((p) => p.name === peer)?.url ?? prev.lastOkUrl }
+      : { ...prev, ok: false, lastError: error, lastErrorAt: now, consecutive: (prev.consecutive ?? 0) + 1 };
+  }
+
   #fetch(peer: Peer, path: string, init: RequestInit = {}) {
     // one place stamps the credential, so no call site can forget to
     const token = this.tokenFor(peer.name);
@@ -223,10 +273,11 @@ export class Federation {
           });
           if (!res.ok) throw new Error(`${res.status}`);
           this.stats.pushed++;
-          this.health[peer.name] = { ok: true, lastSeen: new Date().toISOString() };
+          this.#mark(peer.name, true);
         } catch (err) {
+          this.stats.pushErrors++;
           this.stats.errors++;
-          this.health[peer.name] = { ok: false, lastError: String(err) };
+          this.#mark(peer.name, false, String(err));
         }
       }),
     );
@@ -248,12 +299,13 @@ export class Federation {
             kicks?: AuditEntry[];
           };
           const added = this.ingest(state.messages ?? []);
+          this.stats.pullOk++;
           this.stats.pulled += added;
           this.peerMembers[peer.name] = state.members ?? [];
           this.peerFederated[peer.name] = state.federated ?? [];
           this.peerKicks[peer.name] = state.kicks ?? [];
           this.peerUi[peer.name] = peer.url;
-          this.health[peer.name] = { ok: true, lastSeen: new Date().toISOString() };
+          this.#mark(peer.name, true);
 
           if (this.config.gossip) {
             for (const cand of state.peers ?? []) {
@@ -262,8 +314,9 @@ export class Federation {
             }
           }
         } catch (err) {
+          this.stats.pullErrors++;
           this.stats.errors++;
-          this.health[peer.name] = { ok: false, lastError: String(err) };
+          this.#mark(peer.name, false, String(err));
         }
       }),
     );

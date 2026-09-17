@@ -85,8 +85,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return String(iso.dropFirst(11).prefix(5))
     }
 
+    /// The server stamps `new Date().toISOString()`, which always carries
+    /// milliseconds — and ISO8601DateFormatter without `.withFractionalSeconds`
+    /// returns nil for exactly that. The menu then read "seen never" beside a
+    /// peer marked reachable, which is worse than showing nothing: it says the
+    /// link is dead while the dot says it is alive.
+    static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    static let isoPlain = ISO8601DateFormatter()
+
     func ago(_ iso: String?) -> String {
-        guard let iso, let d = ISO8601DateFormatter().date(from: iso) else { return "never" }
+        guard let iso, let d = Self.iso.date(from: iso) ?? Self.isoPlain.date(from: iso) else { return "never" }
         let s = Int(-d.timeIntervalSinceNow)
         if s < 60 { return "\(s)s ago" }
         if s < 3600 { return "\(s / 60)m ago" }
@@ -150,12 +163,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let s = status {
             let key = s.identity?.fingerprint ?? "no key"
             info(m, "key \(key) · \(members.count) member\(members.count == 1 ? "" : "s") · \(live.count) live invite\(live.count == 1 ? "" : "s") · \(bans.count) ban\(bans.count == 1 ? "" : "s")")
+            // Deliberately NOT the lifetime totals. `errors` never decays, so an
+            // outage an hour ago reads as trouble now — measured: 1676 sat beside
+            // a peer marked reachable. Health is per-peer and current; the totals
+            // are history and belong where they cannot be mistaken for status.
             let panes = s.members?.count ?? 0
-            let st = s.stats
-            info(m, "\(panes) pane\(panes == 1 ? "" : "s") · pushed \(st?.pushed ?? 0) · pulled \(st?.pulled ?? 0) · errors \(st?.errors ?? 0)")
+            let sick = (s.peers ?? []).filter { ($0.consecutive ?? 0) > 0 }
+            let health = sick.isEmpty
+                ? "all links ok"
+                : "\(sick.count) link\(sick.count == 1 ? "" : "s") failing"
+            info(m, "\(panes) pane\(panes == 1 ? "" : "s") · \(health)")
             for p in (s.peers ?? []) {
-                let dot = (p.ok ?? false) ? "●" : "○"
-                let why = (p.ok ?? false) ? "seen \(ago(p.lastSeen))" : String((p.lastError ?? "unreachable").prefix(44))
+                let fails = p.consecutive ?? 0
+                let dot = fails == 0 ? "●" : "○"
+                let why = fails == 0
+                    ? "seen \(ago(p.lastSeen))"
+                    : "\(fails) failed since \(ago(p.lastOkAt)) · \(String((p.lastError ?? "unreachable").prefix(36)))"
                 info(m, "  \(dot) \(p.name) — \(p.url) · \(why)")
             }
             if s.peers?.isEmpty ?? true { info(m, "  no peers") }
@@ -270,6 +293,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let aItem = NSMenuItem(title: "Recent audit", action: nil, keyEquivalent: "")
         aItem.submenu = aud
         m.addItem(aItem)
+
+        if let st = status?.stats {
+            let sm = NSMenu()
+            info(sm, "since \(ago(st.startedAt))")
+            info(sm, "push  \(st.pushed ?? 0) ok · \(st.pushErrors ?? 0) failed")
+            info(sm, "pull  \(st.pullOk ?? 0) ok · \(st.pullErrors ?? 0) failed")
+            info(sm, "\(st.pulled ?? 0) message\((st.pulled ?? 0) == 1 ? "" : "s") ingested from peers")
+            sm.addItem(.separator())
+            info(sm, "totals never decay — for health read the peer rows above")
+            let sItem = NSMenuItem(title: "Sync totals", action: nil, keyEquivalent: "")
+            sItem.submenu = sm
+            m.addItem(sItem)
+        }
         m.addItem(.separator())
 
         let nodes = NSMenu()

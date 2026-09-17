@@ -56,7 +56,11 @@ export type PeerView = {
   via?: string;
   ok?: boolean;
   lastError?: string;
+  lastErrorAt?: string;
   lastSeen?: string;
+  lastOkAt?: string;
+  /** failed attempts since the last success. 0 = the link is fine right now. */
+  consecutive?: number;
 };
 
 export type KnownNode = { node: string; url?: string; lastHeard: string };
@@ -79,7 +83,22 @@ export type Invite = {
   hint: string | null;
 };
 
-export type Stats = { pushed: number; pulled: number; errors: number; startedAt: string };
+/**
+ * Lifetime totals, and the units are NOT the same: `pushed` and `pullOk` count
+ * requests, `pulled` counts messages ingested. `pulled` is legitimately 0
+ * whenever peers have nothing new, so it must never be read as a failure — and
+ * `errors` never decays, so it reports history, not health. For health, read
+ * `PeerView.consecutive`.
+ */
+export type Stats = {
+  pushed: number;
+  pushErrors?: number;
+  pullOk?: number;
+  pullErrors?: number;
+  pulled: number;
+  errors: number;
+  startedAt: string;
+};
 
 /** GET /api/status */
 export type StatusResponse = {

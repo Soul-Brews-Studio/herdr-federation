@@ -14,8 +14,15 @@ struct Identity: Decodable {
     var fingerprint: String?
 }
 
+/// Lifetime totals — history, not health. `pushed`/`pullOk` count requests while
+/// `pulled` counts messages ingested, so they are different units and `pulled` is
+/// legitimately 0 whenever peers have nothing new. Read `PeerView.consecutive`
+/// for whether a link is working right now.
 struct Stats: Decodable {
     var pushed: Int?
+    var pushErrors: Int?
+    var pullOk: Int?
+    var pullErrors: Int?
     var pulled: Int?
     var errors: Int?
     var startedAt: String?
@@ -27,7 +34,11 @@ struct PeerView: Decodable {
     var via: String?
     var ok: Bool?
     var lastError: String?
+    var lastErrorAt: String?
     var lastSeen: String?
+    var lastOkAt: String?
+    /// Failed attempts since the last success. 0 = fine right now.
+    var consecutive: Int?
 }
 
 struct Pane: Decodable {
