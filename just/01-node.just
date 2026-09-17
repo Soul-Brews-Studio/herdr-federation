@@ -58,6 +58,37 @@ status:
 logs:
     @tail -f /tmp/fed-{{ port }}.log
 
+# Measured the hard way: white.local rebooted and both nodes on it were simply
+# gone. 6,862 failed syncs later nobody had noticed except the tray.
+
+# install a systemd user unit so a reboot does not end federation
+install-service port="6750" advertise="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.config/herdr-federation ~/.config/systemd/user ~/.local/state
+    cat > ~/.config/herdr-federation/node.env <<ENV
+    FED_PORT={{ port }}
+    FED_HOST=0.0.0.0
+    FED_ADVERTISE={{ advertise }}
+    FED_ALLOW_LEGACY=0
+    ENV
+    sed -i'' -e 's/^    //' ~/.config/herdr-federation/node.env
+    cp app/systemd/herdr-federation.service ~/.config/systemd/user/
+    systemctl --user daemon-reload
+    # Free the port THIS node wants, not the one `just node stop` defaults to.
+    # `port` defaults to 6750, and on a host where two users each run a node
+    # (measured: god on :6750, nat on :6751) that default aims at the OTHER
+    # user's process. It fails on permissions rather than doing damage, but it
+    # also means the handover silently does nothing and systemd then dies on
+    # EADDRINUSE — which is exactly what happened here.
+    pids=$(ss -lntp 2>/dev/null | grep ":{{ port }} " | grep -o "pid=[0-9]*" | cut -d= -f2 | sort -u || true)
+    for p in ${pids:-}; do kill -9 "$p" 2>/dev/null || echo "  note: $p belongs to another user — not ours to stop"; done
+    sleep 1
+    systemctl --user enable --now herdr-federation
+    loginctl enable-linger "$USER" 2>/dev/null || echo "  note: could not enable linger — the node stops when you log out"
+    sleep 2
+    systemctl --user --no-pager status herdr-federation | head -4
+
 # typecheck the server and the console
 check:
     bun build src/server.ts --target=bun > /dev/null

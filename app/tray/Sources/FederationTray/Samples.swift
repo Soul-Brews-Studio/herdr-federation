@@ -39,6 +39,10 @@ struct Sample {
     let pullErrors: Int
 }
 
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
 struct Series {
     /// one point per sample, already differenced — events since the previous sample
     var deltas: [Double] = []
@@ -88,6 +92,25 @@ final class Window {
             events += max(0, d)
             errs += max(0, b[keyPath: err] - a[keyPath: err])
         }
+        // Smooth the drawn line, never the numbers.
+        //
+        // The node syncs on its own clock (2s) and the tray samples on another
+        // (5s), so each sample catches either 2 or 3 events and the raw deltas
+        // alternate forever — a perfect sawtooth that reads as a link flapping
+        // when nothing is wrong. Measured: 29.9/min is 2.49 events per sample.
+        // A 3-point moving average removes the beat between the two clocks.
+        // The rate, the error count and the stall detector below all stay on the
+        // RAW series: smoothing a stall would hide the one thing worth seeing.
+        if out.deltas.count >= 3 {
+            let raw = out.deltas
+            out.deltas = raw.indices.map { i -> Double in
+                let lo = max(0, i - 1), hi = min(raw.count - 1, i + 1)
+                // never average across a gap — the two sides are not comparable
+                if out.breaks[safe: i] == true || out.breaks[safe: hi] == true { return raw[i] }
+                return raw[lo...hi].reduce(0, +) / Double(hi - lo + 1)
+            }
+        }
+
         let span = samples.last!.at.timeIntervalSince(samples.first!.at)
         out.perMinute = span > 0 ? events / span * 60 : 0
         out.errors = errs

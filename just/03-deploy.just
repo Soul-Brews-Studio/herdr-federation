@@ -37,6 +37,11 @@ host target CONFIRM="no":
     rsync -az --delete web/dist/ {{ target }}:~/herdr-federation/web/dist/
     # the justfiles shell out to these — deploying without them breaks every recipe there
     rsync -az bin/ {{ target }}:~/herdr-federation/bin/
+    # just/01-node.just install-service copies this unit; without it the recipe
+    # fails on the far side with a bare "cannot stat". The Swift tray under app/
+    # is macOS-only and deliberately not shipped.
+    ssh -n {{ target }} 'mkdir -p ~/herdr-federation/app/systemd'
+    rsync -az app/systemd/ {{ target }}:~/herdr-federation/app/systemd/
     rsync -az --delete just/ {{ target }}:~/herdr-federation/just/
     rsync -az justfile {{ target }}:~/herdr-federation/justfile
     ssh {{ target }} 'test -f ~/herdr-federation/peers.json' \

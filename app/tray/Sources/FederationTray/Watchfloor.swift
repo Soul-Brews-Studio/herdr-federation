@@ -63,10 +63,6 @@ struct Spark: View {
     }
 }
 
-extension Array {
-    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
-}
-
 struct Row: View {
     let label: String
     let series: Series
@@ -78,11 +74,11 @@ struct Row: View {
             Spark(series: series, tint: tint).frame(maxWidth: .infinity)
             Text(String(format: "%.1f/min", series.perMinute))
                 .font(.system(size: 11, design: .monospaced)).monospacedDigit()
-                .foregroundStyle(.secondary).frame(width: 62, alignment: .trailing)
+                .foregroundStyle(.secondary).frame(width: 66, alignment: .trailing)
             Text("\(series.errors) err")
                 .font(.system(size: 11, design: .monospaced)).monospacedDigit()
                 .foregroundStyle(series.errors > 0 ? Color.red : .secondary)
-                .frame(width: 46, alignment: .trailing)
+                .frame(width: 62, alignment: .trailing)
         }
     }
 }
