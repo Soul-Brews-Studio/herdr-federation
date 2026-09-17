@@ -13,7 +13,9 @@ import type { Pane, Tab, Workspace } from "./protocol";
 import type {
   AdminState, AdoptRequest, AuditEntry, AuditStep, BroadcastRequest, BroadcastResult, CallsResponse,
   CreateInviteRequest, CreateInviteResponse, ErrorResponse, FedRedeemRequest, FedRedeemResponse,
-  FedState, HeyRequest, HeyResponse, IngestRequest, IngestResponse, Invite, InvitePreview,
+  FedHeyRequest, FedPaneRelayRequest, FedPaneRequest, FedPaneResponse, FedRelayRequest, FedState,
+  HeyRequest, HeyResponse, IngestRequest, IngestResponse,
+  Invite, InvitePreview, RelayedPeer,
   InvitesResponse, JoinRequest, JoinResponse, KickRequest, KickResponse, LeaveRequest,
   LeaveResponse, Member, PaneClientMessage, PaneServerMessage, RedeemRequest, RedeemResponse,
   StatusResponse, Topology, UiTab, UiWorkspace,
@@ -157,6 +159,68 @@ type PaneSocket = { paneId: string; format: "text" | "ansi"; timer?: ReturnType<
 const watchers = new Map<string, Set<{ data: PaneSocket }>>();
 
 /** After we type into a pane, push a frame now instead of waiting for the next tick. */
+/**
+ * Deliver text to one of OUR panes by pane id or handle. The one local delivery
+ * path, so the console endpoint, the peer endpoint and the broadcast fan-out
+ * cannot drift in what "to" means.
+ */
+async function deliverLocal(to: string, text: string) {
+  const target = members.find((m) => m.pane === to || m.handle === to);
+  if (!target) throw new Error(`no agent ${to} on ${config.node}`);
+  await herdr.prompt(target.pane, text);
+  nudge(target.pane);
+  return target;
+}
+
+/**
+ * Everything we know about our DIRECT peers, for a spoke that asked. `except`
+ * is the asker: it must not be handed its own roster back as a relayed node.
+ * Only rosters that arrived on a successful pull are republished — a peer we
+ * never reached has nothing to relay, and an empty entry would draw a ghost.
+ */
+function relayedFor(except: string): Record<string, RelayedPeer> {
+  const out: Record<string, RelayedPeer> = {};
+  for (const p of fed.peers) {
+    if (p.name === except || p.name === config.node) continue;
+    const h = fed.health[p.name];
+    if (!h?.lastOkAt) continue;
+    out[p.name] = {
+      url: p.url,
+      members: fed.peerMembers[p.name] ?? [],
+      ok: h.ok,
+      lastOkAt: h.lastOkAt,
+      consecutive: h.consecutive ?? 0,
+    };
+  }
+  return out;
+}
+
+/** Every roster we can see — our direct peers' plus what hubs relayed — in one map. */
+function allPeerMembers(): Record<string, Member[]> {
+  const out: Record<string, Member[]> = { ...fed.peerMembers };
+  for (const [n, r] of Object.entries(fed.relayed)) if (!(n in out)) out[n] = r.members;
+  return out;
+}
+
+/** Where to send an action for a node: itself if direct, its hub if relayed. */
+function allPeerUi(): Record<string, string> {
+  const out: Record<string, string> = { ...fed.peerUi };
+  for (const [n, r] of Object.entries(fed.relayed)) if (!(n in out)) out[n] = fed.peerUi[r.via] ?? fed.peer(r.via)?.url ?? "";
+  return out;
+}
+
+/** Relayed nodes as PeerView rows. `via` set, health = the hub's link to them. */
+function relayedViews() {
+  return Object.entries(fed.relayed).map(([name, r]) => ({
+    name,
+    url: fed.peerUi[r.via] ?? fed.peer(r.via)?.url ?? "",
+    via: r.via,
+    ok: r.ok,
+    lastOkAt: r.lastOkAt,
+    consecutive: r.consecutive ?? 0,
+  }));
+}
+
 function nudge(paneId: string) {
   for (const ws of watchers.get(paneId) ?? []) {
     ws.data.last = undefined;
@@ -184,7 +248,8 @@ const server = Bun.serve<PaneSocket, {}>({
 
     // ── federation (peer to peer, no hub) ───────────────────────────
     if (path === "/api/fed/state") {
-      if (!member(req).ok) return unauthorized();
+      const who = member(req);
+      if (!who.ok) return unauthorized();
       return json<FedState>({
         node: config.node,
         identity: ident.identity,
@@ -193,12 +258,113 @@ const server = Bun.serve<PaneSocket, {}>({
         peers: fed.peers.map((p) => ({ name: p.name, url: p.url, via: p.via })),
         federated: fedMembers.members,
         kicks: fedMembers.publishedKicks,
+        relayed: relayedFor(who.node),
       });
     }
     if (path === "/api/fed/ingest" && req.method === "POST") {
       if (!member(req).ok) return unauthorized();
       const body = (await req.json()) as IngestRequest;
       return json<IngestResponse>({ added: fed.ingest(body.messages ?? [], body.from), node: config.node });
+    }
+    /**
+     * A peer delivering to one of OUR panes. Member-gated, unlike /api/hey: this
+     * is the path peers and hubs use, so it needs the token the console path
+     * still lacks.
+     */
+    if (path === "/api/fed/hey" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
+      const { to, text } = (await req.json()) as FedHeyRequest;
+      if (!to || !text?.trim()) return json<ErrorResponse>({ error: "need to and text" }, 400);
+      try {
+        const t = await deliverLocal(to, text.trim());
+        return json<HeyResponse>({ delivered: "pane", to: t.handle, pane: t.pane });
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 404);
+      }
+    }
+    /**
+     * A peer reading one of OUR panes. Same gate as /api/fed/hey, and the same
+     * `source: "visible"` rule the console path uses — `recent` is serviced by
+     * driving the pane's own mouse-scroll, so a background poll would scroll the
+     * operator's real terminal. A read that moves the thing being read is not a
+     * read, so it is not configurable here either.
+     */
+    if (path === "/api/fed/pane" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
+      const { pane, lines } = (await req.json()) as FedPaneRequest;
+      if (!pane || !validPane(pane)) return json<ErrorResponse>({ error: "bad pane id" }, 400);
+      try {
+        const n = Math.min(Math.max(Number(lines) || 40, 1), 400);
+        const read = await herdr.readPane(pane, { source: "visible", lines: n });
+        return json<FedPaneResponse>({ node: config.node, pane, text: typeof read === "string" ? read : String((read as { text?: string })?.text ?? ""), lines: n });
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /** A spoke asking us, its hub, to read a pane on one of OUR direct peers. One hop. */
+    if (path === "/api/fed/pane-relay" && req.method === "POST") {
+      if (!member(req).ok) return unauthorized();
+      const { node, pane, lines } = (await req.json()) as FedPaneRelayRequest;
+      if (!node || !pane) return json<ErrorResponse>({ error: "need node and pane" }, 400);
+      if (!fed.peer(node)) return json<ErrorResponse>({ error: `${node} is not a direct peer of ${config.node} — no route` }, 404);
+      try {
+        const res = await fed.call(node, "/api/fed/pane", { method: "POST", body: JSON.stringify({ pane, lines }) });
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<FedPaneResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /**
+     * The console asking THIS node to read a pane anywhere in the federation.
+     * Ungated like the rest of the console surface; it routes by node, so a
+     * client never has to know whether a node is direct or behind a hub.
+     */
+    if (path === "/api/fleet/pane" && req.method === "POST") {
+      const { node, pane, lines } = (await req.json()) as FedPaneRelayRequest;
+      if (!node || !pane) return json<ErrorResponse>({ error: "need node and pane" }, 400);
+      try {
+        if (node === config.node) {
+          if (!validPane(pane)) return json<ErrorResponse>({ error: "bad pane id" }, 400);
+          const n = Math.min(Math.max(Number(lines) || 40, 1), 400);
+          const read = await herdr.readPane(pane, { source: "visible", lines: n });
+          return json<FedPaneResponse>({ node, pane, text: typeof read === "string" ? read : String((read as { text?: string })?.text ?? ""), lines: n });
+        }
+        let res: Response;
+        if (fed.peer(node)) {
+          res = await fed.call(node, "/api/fed/pane", { method: "POST", body: JSON.stringify({ pane, lines }) });
+        } else if (fed.relayed[node]) {
+          res = await fed.call(fed.relayed[node].via, "/api/fed/pane-relay", { method: "POST", body: JSON.stringify({ node, pane, lines }) });
+        } else {
+          return json<ErrorResponse>({ error: `no route to ${node} — not a peer, and no hub relays it` }, 404);
+        }
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<FedPaneResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
+    }
+    /**
+     * A spoke asking us, its hub, to forward to one of OUR direct peers. One hop
+     * only: if the target is not our direct peer we say so rather than relay a
+     * relay, so a message cannot wander a ring of hubs.
+     */
+    if (path === "/api/fed/relay" && req.method === "POST") {
+      const who = member(req);
+      if (!who.ok) return unauthorized();
+      const { node, to, text } = (await req.json()) as FedRelayRequest;
+      if (!node || !to || !text?.trim()) return json<ErrorResponse>({ error: "need node, to and text" }, 400);
+      if (!fed.peer(node)) return json<ErrorResponse>({ error: `${node} is not a direct peer of ${config.node} — no route` }, 404);
+      try {
+        const res = await fed.call(node, "/api/fed/hey", { method: "POST", body: JSON.stringify({ to, text: text.trim() }) });
+        const out = await res.json();
+        if (!res.ok || out.error) return json<ErrorResponse>({ error: out.error ?? `${node} answered ${res.status}` }, res.ok ? 502 : res.status);
+        return json<HeyResponse>(out);
+      } catch (err) {
+        return json<ErrorResponse>({ error: String(err).replace(/^Error:\s*/, "") }, 502);
+      }
     }
 
     /**
@@ -418,7 +584,8 @@ const server = Bun.serve<PaneSocket, {}>({
         edges,
         heard,
         panes: members,
-        peerPanes: fed.peerMembers,
+        peerPanes: allPeerMembers(),
+        relayed: fed.relayed,
       });
     }
 
@@ -435,10 +602,16 @@ const server = Bun.serve<PaneSocket, {}>({
         stats: fed.stats,
         members,
         messages: fed.messages.slice(-60).reverse(),
-        peers: fed.peers.map((p) => ({ name: p.name, url: p.url, via: p.via, ...fed.health[p.name] })),
-        peerMembers: fed.peerMembers,
-        peerUi: fed.peerUi,
+        // direct links first, then what hubs let us see — every reader that
+        // walks `peers` now walks the whole reachable fleet
+        peers: [
+          ...fed.peers.map((p) => ({ name: p.name, url: p.url, via: p.via, ...fed.health[p.name] })),
+          ...relayedViews(),
+        ],
+        peerMembers: allPeerMembers(),
+        peerUi: allPeerUi(),
         known: Object.values(fed.known),
+        relayed: fed.relayed,
       });
     }
 
@@ -459,11 +632,8 @@ const server = Bun.serve<PaneSocket, {}>({
       if (!text?.trim()) return json({ error: "empty message" }, 400);
       try {
         if (to && to !== "*") {
-          const target = members.find((m) => m.pane === to || m.handle === to);
-          if (!target) return json({ error: `no agent ${to} on ${config.node}` }, 404);
-          await herdr.prompt(target.pane, text.trim());
-          nudge(target.pane);
-          return json<HeyResponse>({ delivered: "pane", to: target.handle, pane: target.pane });
+          const t = await deliverLocal(to, text.trim());
+          return json<HeyResponse>({ delivered: "pane", to: t.handle, pane: t.pane });
         }
         const msg = await fed.post(config.node, text.trim());
         return json<HeyResponse>({ delivered: "channel", id: msg.id });
@@ -480,21 +650,26 @@ const server = Bun.serve<PaneSocket, {}>({
       const results = await Promise.all(
         targets.map(async (t): Promise<BroadcastResult> => {
           try {
-            if (t.node && t.node !== config.node && t.base) {
-              const res = await fetch(`${t.base}/api/hey`, {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ to: t.pane ?? t.handle, text: text.trim() }),
-                signal: AbortSignal.timeout(5000),
-              });
+            const to = t.pane ?? t.handle;
+            if (t.node && t.node !== config.node) {
+              // Routed by NODE, never by the `base` a client sent: a direct peer
+              // gets an authenticated /api/fed/hey, a relayed node goes to its
+              // hub's /api/fed/relay. The old hop — an unauthenticated POST to
+              // whatever address the client named — is gone.
+              let res: Response;
+              if (fed.peer(t.node)) {
+                res = await fed.call(t.node, "/api/fed/hey", { method: "POST", body: JSON.stringify({ to, text: text.trim() }) });
+              } else if (fed.relayed[t.node]) {
+                const hub = fed.relayed[t.node].via;
+                res = await fed.call(hub, "/api/fed/relay", { method: "POST", body: JSON.stringify({ node: t.node, to, text: text.trim() }) });
+              } else {
+                throw new Error(`no route to ${t.node} — not a peer, and no hub relays it`);
+              }
               const out = await res.json();
-              if (out.error) throw new Error(out.error);
+              if (!res.ok || out.error) throw new Error(out.error ?? `${t.node} answered ${res.status}`);
               return { handle: t.handle, node: t.node, ok: true, via: "peer" };
             }
-            const target = members.find((m) => m.pane === t.pane || m.handle === t.handle);
-            if (!target) throw new Error("agent not found here");
-            await herdr.prompt(target.pane, text.trim());
-            nudge(target.pane);
+            await deliverLocal(to, text.trim());
             return { handle: t.handle, node: t.node ?? config.node, ok: true, via: "local" };
           } catch (err) {
             return { handle: t.handle, node: t.node, ok: false, error: String(err).replace(/^Error:\s*/, "") };

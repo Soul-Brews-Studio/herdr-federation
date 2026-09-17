@@ -53,6 +53,12 @@ export type Topology = { workspaces: UiWorkspace[]; tabs: UiTab[] };
 export type PeerView = {
   name: string;
   url: string;
+  /**
+   * Set when we hold NO link to this node ourselves and everything we know
+   * about it came through the named hub. `url` is then the hub's address —
+   * acting on such a node means asking the hub to forward — and `ok` /
+   * `consecutive` describe the hub's link to it, not ours.
+   */
   via?: string;
   ok?: boolean;
   lastError?: string;
@@ -97,6 +103,14 @@ export type Stats = {
   pullErrors?: number;
   pulled: number;
   errors: number;
+  /**
+   * Lifetime bytes on the wire, request bodies out and response bodies in.
+   * Monotonic counters like the rest: a UI derives a rate from two samples.
+   * Bodies only — headers and TLS are not counted, so this is the payload
+   * rate, not what a network interface would show.
+   */
+  bytesOut?: number;
+  bytesIn?: number;
   startedAt: string;
 };
 
@@ -114,9 +128,15 @@ export type StatusResponse = {
   members: Member[];
   messages: FedMessage[];
   peers: PeerView[];
+  /**
+   * Includes relayed nodes too, so every existing reader sees the whole
+   * reachable fleet; `relayed` says which ones came through a hub.
+   */
   peerMembers: Record<string, Member[]>;
+  /** where to send actions for a node — for a relayed node this is its hub */
   peerUi: Record<string, string>;
   known: KnownNode[];
+  relayed?: Record<string, RelayedPeer>;
 };
 
 /** GET /api/calls */
@@ -154,6 +174,38 @@ export type JoinResponse = { joined: { node: string; url: string } };
 export type LeaveRequest = { name?: string };
 export type LeaveResponse = { left: string };
 
+/**
+ * What a hub republishes about ONE of its direct peers, for a spoke that holds
+ * no link to that peer. This is the whole of the hub model: join one node and
+ * you see everyone it sees.
+ *
+ * Strictly one hop. A node republishes only what it pulled DIRECTLY — never
+ * what it was itself relayed — so a spoke sees hub + hub's peers, and a cycle
+ * of hubs cannot echo state around forever. `ok` and `lastOkAt` are the hub's
+ * link to that peer: the spoke has no better source, and must not pretend to.
+ */
+export type RelayedPeer = {
+  /** the hub this came through — filled in by the receiving spoke */
+  via?: string;
+  /** the peer's own advertised address, informational; route through `via` */
+  url?: string;
+  members: Member[];
+  ok?: boolean;
+  lastOkAt?: string;
+  consecutive?: number;
+};
+
+/** POST /api/fed/hey — deliver to one of MY panes; caller is an authenticated peer */
+export type FedHeyRequest = { to: string; text: string };
+/** POST /api/fed/relay — forward to one of MY DIRECT peers; caller is an authenticated spoke */
+export type FedRelayRequest = { node: string; to: string; text: string };
+
+/** POST /api/fed/pane — read one of MY panes; caller is an authenticated peer */
+export type FedPaneRequest = { pane: string; lines?: number };
+/** POST /api/fed/pane-relay — read a pane on one of MY DIRECT peers, for a spoke */
+export type FedPaneRelayRequest = { node: string; pane: string; lines?: number };
+export type FedPaneResponse = { node: string; pane: string; text: string; lines: number };
+
 /** GET /api/fed/state · POST /api/fed/ingest */
 export type FedState = {
   node: string;
@@ -165,6 +217,8 @@ export type FedState = {
   federated?: MemberRecord[];
   /** kicks this node made, published as fact — adopting them is the peer's choice */
   kicks?: AuditEntry[];
+  /** my DIRECT peers' rosters, minus the caller's own — see RelayedPeer */
+  relayed?: Record<string, RelayedPeer>;
 };
 export type IngestRequest = { messages?: FedMessage[]; from?: { node?: string; url?: string } };
 export type IngestResponse = { added: number; node: string };
@@ -308,6 +362,8 @@ export type AdminState = {
   peerPanes: Record<string, Member[]>;
   /** heard from, never joined — nodes that reached us without a membership */
   heard: KnownNode[];
+  /** nodes we see only through a hub — drawn hanging off that hub, never as our edge */
+  relayed?: Record<string, RelayedPeer>;
 };
 
 /** POST /api/invites */

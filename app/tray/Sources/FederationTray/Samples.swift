@@ -37,6 +37,9 @@ struct Sample {
     let pushErrors: Int
     let pullOk: Int
     let pullErrors: Int
+    /// cumulative payload bytes; older nodes do not report them and send 0
+    let bytesOut: Int
+    let bytesIn: Int
 }
 
 extension Array {
@@ -51,6 +54,16 @@ struct Series {
     var perMinute: Double = 0
     var errors: Int = 0
     var stalledFor: TimeInterval?
+    /// payload bytes per second over the window, from the same two samples the rate uses
+    var bytesPerSec: Double = 0
+}
+
+/// "1.2 KB/s" — one decimal, unit chosen so the number stays under 1000.
+func rate(_ bytesPerSec: Double) -> String {
+    if bytesPerSec < 1 { return "0 B/s" }
+    if bytesPerSec < 1024 { return String(format: "%.0f B/s", bytesPerSec) }
+    if bytesPerSec < 1024 * 1024 { return String(format: "%.1f KB/s", bytesPerSec / 1024) }
+    return String(format: "%.2f MB/s", bytesPerSec / 1024 / 1024)
 }
 
 final class Window {
@@ -74,11 +87,12 @@ final class Window {
     func clear() { samples = [] }
 
     /// `ok` and `err` pick the counters; both are cumulative on the wire.
-    func series(_ ok: KeyPath<Sample, Int>, _ err: KeyPath<Sample, Int>, cadence: TimeInterval) -> Series {
+    func series(_ ok: KeyPath<Sample, Int>, _ err: KeyPath<Sample, Int>, bytes: KeyPath<Sample, Int>, cadence: TimeInterval) -> Series {
         guard samples.count >= 2 else { return Series() }
         var out = Series()
         var events = 0.0
         var errs = 0
+        var octets = 0
         for i in 1..<samples.count {
             let a = samples[i - 1], b = samples[i]
             let dt = b.at.timeIntervalSince(a.at)
@@ -91,6 +105,7 @@ final class Window {
             out.breaks.append(broke)
             events += max(0, d)
             errs += max(0, b[keyPath: err] - a[keyPath: err])
+            octets += max(0, b[keyPath: bytes] - a[keyPath: bytes])
         }
         // Smooth the drawn line, never the numbers.
         //
@@ -113,6 +128,7 @@ final class Window {
 
         let span = samples.last!.at.timeIntervalSince(samples.first!.at)
         out.perMinute = span > 0 ? events / span * 60 : 0
+        out.bytesPerSec = span > 0 ? Double(octets) / span : 0
         out.errors = errs
         // "stopped Nm ago" — the last sample that actually moved the counter
         if let lastMove = (1..<samples.count).reversed().first(where: { samples[$0][keyPath: ok] > samples[$0 - 1][keyPath: ok] }) {

@@ -13,7 +13,7 @@ export function allMembers(s: Status | null): Located[] {
   return [
     ...(s.members ?? []).map((m) => ({ ...m, node: s.node, base: "" })),
     ...Object.entries(s.peerMembers ?? {}).flatMap(([node, list]) =>
-      (list ?? []).map((m) => ({ ...m, node, base: s.peerUi?.[node] ?? "" })),
+      (list ?? []).map((m) => ({ ...m, node, base: s.peerUi?.[node] ?? "", via: s.relayed?.[node]?.via })),
     ),
   ];
 }

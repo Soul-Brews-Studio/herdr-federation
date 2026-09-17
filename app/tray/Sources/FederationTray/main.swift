@@ -116,7 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let st = s.stats {
                     self.window.add(Sample(at: Date(),
                                            pushed: st.pushed ?? 0, pushErrors: st.pushErrors ?? 0,
-                                           pullOk: st.pullOk ?? 0, pullErrors: st.pullErrors ?? 0))
+                                           pullOk: st.pullOk ?? 0, pullErrors: st.pullErrors ?? 0,
+                                           bytesOut: st.bytesOut ?? 0, bytesIn: st.bytesIn ?? 0))
                 }
             case .failure(let e):
                 self.status = nil
@@ -139,8 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// One snapshot at a time. Publishing field by field lets the view paint a
     /// frame where the verdict disagrees with the rows beneath it.
     func publish() {
-        let push = window.series(\.pushed, \.pushErrors, cadence: Self.cadence)
-        let pull = window.series(\.pullOk, \.pullErrors, cadence: Self.cadence)
+        let push = window.series(\.pushed, \.pushErrors, bytes: \.bytesOut, cadence: Self.cadence)
+        let pull = window.series(\.pullOk, \.pullErrors, bytes: \.bytesIn, cadence: Self.cadence)
         watch.status = status
         watch.admin = admin
         watch.offline = lastError

@@ -25,6 +25,9 @@ struct Stats: Decodable {
     var pullErrors: Int?
     var pulled: Int?
     var errors: Int?
+    /// lifetime payload bytes on the wire — bodies only, no headers
+    var bytesOut: Int?
+    var bytesIn: Int?
     var startedAt: String?
 }
 

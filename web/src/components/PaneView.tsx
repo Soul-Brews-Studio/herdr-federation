@@ -44,6 +44,14 @@ export function PaneView({ member, interactive = false, dense = false, className
   useEffect(() => {
     setState("opening");
     setText("");
+    // A relayed pane lives on a node we hold no link to; `base` is its hub, and
+    // the hub's /ws/pane would open the hub's OWN pane of that id — a different
+    // terminal wearing the same label. Say so instead of showing the wrong one.
+    if (member.via) {
+      setState("lost");
+      setError(`${member.node} is seen through ${member.via} — live preview needs a direct link. Messages still route through the hub.`);
+      return;
+    }
     const socket = new WebSocket(`${base}/ws/pane/${encodeURIComponent(member.pane)}`);
     ws.current = socket;
 
@@ -59,7 +67,7 @@ export function PaneView({ member, interactive = false, dense = false, className
     socket.onclose = () => setState("lost");
     socket.onerror = () => setState("lost");
     return () => socket.close();
-  }, [member.pane, base]);
+  }, [member.pane, base, member.via, member.node]);
 
   useEffect(() => {
     const el = body.current;

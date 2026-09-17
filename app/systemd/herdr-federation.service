@@ -20,8 +20,12 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%h/herdr-federation
 EnvironmentFile=%h/.config/herdr-federation/node.env
-# bun is installed per-user; systemd does not inherit an interactive PATH
-ExecStart=%h/.bun/bin/bun run src/server.ts
+# systemd does not inherit an interactive PATH, and bun is not in one place:
+# per-user under ~/.bun on white, system-wide in /usr/local/bin on black. A
+# hard-coded %h/.bun/bin/bun failed there with status=203/EXEC (measured
+# 2026-09-17), so the unit searches the places it is actually installed.
+Environment=PATH=%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env bun run src/server.ts
 Restart=always
 RestartSec=5
 # The herdr socket may not exist yet right after a reboot. Restart=always plus a

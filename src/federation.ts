@@ -44,7 +44,7 @@ export type PeerMember = {
   repo?: string;
 };
 
-import type { AuditEntry, MemberRecord } from "./wire";
+import type { AuditEntry, MemberRecord, RelayedPeer } from "./wire";
 
 export type FedConfig = {
   node: string;
@@ -74,12 +74,19 @@ export class Federation {
   peerMembers: Record<string, PeerMember[]> = {};
   peerUi: Record<string, string> = {};
   /**
+   * Nodes we hold no link to, seen through a hub we do hold. Keyed by node
+   * name; `via` is the hub. Never persisted, never republished, never synced
+   * with — a relayed node is something we can SEE, and can reach only by
+   * asking its hub to forward.
+   */
+  relayed: Record<string, RelayedPeer & { via: string }> = {};
+  /**
    * Lifetime totals. `pushed` and `pullOk` count REQUESTS; `pulled` counts
    * MESSAGES ingested, which is a different unit and is legitimately 0 whenever
    * peers have nothing new. Printing "pushed 1143 · pulled 0" side by side read
    * as a one-way failure when nothing was wrong — hence the separate pullOk.
    */
-  stats = { pushed: 0, pushErrors: 0, pullOk: 0, pullErrors: 0, pulled: 0, errors: 0, startedAt: new Date().toISOString() };
+  stats = { pushed: 0, pushErrors: 0, pullOk: 0, pullErrors: 0, pulled: 0, errors: 0, bytesOut: 0, bytesIn: 0, startedAt: new Date().toISOString() };
 
   /** what each peer reports about its own membership — read-only, for the mesh view */
   peerFederated: Record<string, MemberRecord[]> = {};
@@ -169,6 +176,21 @@ export class Federation {
     delete this.peerFederated[name];
     delete this.peerKicks[name];
     delete this.health[name];
+    // everything we saw through that hub went with it
+    for (const [n, r] of Object.entries(this.relayed)) if (r.via === name) delete this.relayed[n];
+    delete this.relayed[name];
+  }
+
+  /** a direct peer by name, or undefined — the test for "can we act on this node ourselves" */
+  peer(name: string) {
+    return this.#peers.find((p) => p.name === name);
+  }
+
+  /** An authenticated call to a direct peer. Public so the server can forward on a spoke's behalf. */
+  call(name: string, path: string, init: RequestInit = {}) {
+    const peer = this.peer(name);
+    if (!peer) throw new Error(`${name} is not a direct peer of ${this.config.node}`);
+    return this.#fetch(peer, path, init);
   }
 
   get messages() {
@@ -266,13 +288,13 @@ export class Federation {
     await Promise.all(
       this.#peers.map(async (peer) => {
         try {
-          const res = await this.#fetch(peer, "/api/fed/ingest", {
-            method: "POST",
-            // introduce ourselves, so a peer that cannot reach back still knows we exist
-            body: JSON.stringify({ messages: mine.slice(-100), from: { node: this.config.node, url: this.advertised } }),
-          });
+          // introduce ourselves, so a peer that cannot reach back still knows we exist
+          const body = JSON.stringify({ messages: mine.slice(-100), from: { node: this.config.node, url: this.advertised } });
+          const res = await this.#fetch(peer, "/api/fed/ingest", { method: "POST", body });
           if (!res.ok) throw new Error(`${res.status}`);
           this.stats.pushed++;
+          this.stats.bytesOut += Buffer.byteLength(body);
+          this.stats.bytesIn += Buffer.byteLength(await res.text());
           this.#mark(peer.name, true);
         } catch (err) {
           this.stats.pushErrors++;
@@ -290,13 +312,17 @@ export class Federation {
         try {
           const res = await this.#fetch(peer, "/api/fed/state");
           if (!res.ok) throw new Error(`${res.status}`);
-          const state = (await res.json()) as {
+          // text first, so the byte count is what actually crossed the wire
+          const raw = await res.text();
+          this.stats.bytesIn += Buffer.byteLength(raw);
+          const state = JSON.parse(raw) as {
             node?: string;
             messages?: FedMessage[];
             members?: PeerMember[];
             peers?: Peer[];
             federated?: MemberRecord[];
             kicks?: AuditEntry[];
+            relayed?: Record<string, RelayedPeer>;
           };
           const added = this.ingest(state.messages ?? []);
           this.stats.pullOk++;
@@ -306,6 +332,17 @@ export class Federation {
           this.peerKicks[peer.name] = state.kicks ?? [];
           this.peerUi[peer.name] = peer.url;
           this.#mark(peer.name, true);
+
+          // The hub model. What this peer holds directly, we now see through it.
+          // Rebuilt from scratch per pull so a node the hub kicked vanishes here
+          // on the next cycle — one kick at the hub, gone everywhere, with no
+          // "adopt" step. A direct link always wins over a relayed one, and we
+          // never relay ourselves back to ourselves.
+          for (const [n, r] of Object.entries(this.relayed)) if (r.via === peer.name) delete this.relayed[n];
+          for (const [n, r] of Object.entries(state.relayed ?? {})) {
+            if (n === this.config.node || this.#peers.some((p) => p.name === n)) continue;
+            this.relayed[n] = { ...r, via: peer.name, members: r.members ?? [] };
+          }
 
           // Gossip LEARNS OF nodes; it no longer adopts them.
           //
