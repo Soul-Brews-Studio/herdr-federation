@@ -29,8 +29,8 @@ all of them".
 - A pane carries `agent_status`: working · idle · blocked · done · unknown.
 - `kind` is the detected agent (claude, codex, omp) or `"shell"` when herdr found
   none. 22 agents across 29 panes — shells are panes, not agents.
-- Two machine addresses can be the same host under different Unix users
-  (`white` and `nat-white` are both white.local).
+- Two machine addresses can be the same host under different Unix users, so a
+  node is identified by name and never by host.
 - Peer health is `consecutive` failures since the last success, not a lifetime total.
 
 ## Constraints that bind the design

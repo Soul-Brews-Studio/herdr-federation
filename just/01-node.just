@@ -58,7 +58,7 @@ status:
 logs:
     @tail -f /tmp/fed-{{ port }}.log
 
-# Measured the hard way: white.local rebooted and both nodes on it were simply
+# Measured the hard way: a host rebooted and both nodes on it were simply
 # gone. 6,862 failed syncs later nobody had noticed except the tray.
 
 # install a systemd user unit so a reboot does not end federation

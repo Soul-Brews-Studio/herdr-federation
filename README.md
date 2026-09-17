@@ -6,7 +6,9 @@ message the whole fleet, and fan one message out to a squad of agents across mac
 **One dependency: the Herdr socket.** No Sheppard, no Collie, no ttyd — pane streaming,
 input, and peer sync are all ours.
 
-Running: **m5** ↔ **white.local**, over NetBird.
+Built and run across four nodes on a private NetBird mesh — two of them the same
+host under different Unix users, which is why a node is addressed by name, never
+by host.
 
 ## Shape
 

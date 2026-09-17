@@ -3,8 +3,8 @@
 // {
 //   "current": "m5",
 //   "nodes": [
-//     { "name": "m5",    "url": "http://127.0.0.1:6750" },
-//     { "name": "white", "url": "http://100.97.212.120:6750" }
+//     { "name": "local", "url": "http://127.0.0.1:6750" },
+//     { "name": "other", "url": "http://<peer address>:6750" }
 //   ],
 //   "repoDir": "/path/to/herdr-federation"   // optional; start/stop shells out here
 // }
