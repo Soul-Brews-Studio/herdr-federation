@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/* ── The engine room ────────────────────────────────────────────────────────
+   A second world for the same console. Not the shipped terminal world with a
+   new accent — a different instrument entirely.
+
+   The scene decides dark: one operator, at night, this panel open beside a
+   terminal that already fills the screen. Iron ground, brass instruments, a
+   bone dial face that is the only light source on the page.                */
+
+@font-face {
+  font-family: "Archivo Narrow";
+  src: url("/fonts/archivo-narrow-latin-500.woff2") format("woff2");
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Archivo Narrow";
+  src: url("/fonts/archivo-narrow-latin-600.woff2") format("woff2");
+  font-weight: 600; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: "Archivo Narrow";
+  src: url("/fonts/archivo-narrow-latin-700.woff2") format("woff2");
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+@theme {
+  /* iron hull — three values, no more */
+  --color-iron: #14161a;
+  --color-iron-deep: #0c0e11;
+  --color-plate: #1c2026;
+  --color-seam: #2a3039;
+
+  /* brass, aged and polished — the instrument metal */
+  --color-brass: #b8934e;
+  --color-brass-lit: #e2bd76;
+  --color-brass-dim: #6d5730;
+
+  /* the dial face: bone, the only light on the page */
+  --color-bone: #e8e2d4;
+  --color-bone-dim: #a39c8c;
+
+  /* order and answer: the two halves of every federation relationship */
+  --color-order: #d98e3a;   /* what we rang */
+  --color-answer: #6fae8e;  /* what they rang back */
+  --color-alarm: #d1554f;
+  --color-idle: #5c636e;
+
+  --font-engrave: "Archivo Narrow", ui-sans-serif, system-ui, sans-serif;
+  --font-read: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html { color-scheme: dark; }
+  body.bridge {
+    background:
+      /* the hull is lit from the instruments, not from above */
+      radial-gradient(120% 80% at 50% 0%, #1b1f25 0%, var(--color-iron) 46%, var(--color-iron-deep) 100%);
+    color: var(--color-bone);
+    font-family: var(--font-read);
+    font-size: 13px;
+    line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+  }
+
+  /* The surfaces nobody draws still belong to the world. */
+  body.bridge ::selection { background: var(--color-brass-dim); color: var(--color-bone); }
+  body.bridge { caret-color: var(--color-brass-lit); }
+  body.bridge ::-webkit-scrollbar { width: 10px; height: 10px; }
+  body.bridge ::-webkit-scrollbar-track { background: var(--color-iron-deep); }
+  body.bridge ::-webkit-scrollbar-thumb {
+    background: var(--color-seam); border: 2px solid transparent; background-clip: content-box; border-radius: 0;
+  }
+  body.bridge ::-webkit-scrollbar-thumb:hover { background: var(--color-brass-dim); background-clip: content-box; }
+  body.bridge :focus-visible { outline: 1px solid var(--color-brass-lit); outline-offset: 2px; }
+  body.bridge a { text-underline-offset: 3px; }
+}
+
+@layer components {
+  /* Engraved lettering: the label stamped into the plate, not printed on it. */
+  .engrave {
+    font-family: var(--font-engrave);
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-brass);
+    text-shadow: 0 1px 0 rgb(0 0 0 / 0.55);
+  }
+
+  /* A riveted plate. Depth is an offset and a blur, never a flat halo. */
+  .plate {
+    background: linear-gradient(180deg, var(--color-plate) 0%, #171a1f 100%);
+    border: 1px solid var(--color-seam);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.03) inset, 0 8px 22px -14px rgb(0 0 0 / 0.9);
+  }
+}
