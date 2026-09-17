@@ -123,22 +123,6 @@ on whichever got there first — measured: a second node started from a bunx cac
 reported `peers: 0` while the real node beside it held three healthy links. Use
 `FED_PORT` for a second node, or stop the first.
 
-## Watching
-
-```sh
-bun bin/watch.ts                                   # every 15s, this node
-bun bin/watch.ts --every 30 --peek white:w4:p1     # slower, and dump that pane on any change
-HERDR_FED_URL=http://host:6750 bun bin/watch.ts    # watch another node
-```
-
-Prints only what **changed** — an agent's status, one appearing or vanishing, a link
-going down or recovering. A poll that reprints the roster every tick buries the one
-line that matters; quiet here means nothing happened.
-
-When the node itself goes unreachable it says so once and keeps the last known good
-snapshot, so the diff printed on recovery is the report you actually want rather than
-every agent re-appearing from nothing.
-
 ## For an AI agent
 
 `skills/herdr-federation/SKILL.md` is a [SKILL.md](https://code.claude.com/docs/en/skills)
