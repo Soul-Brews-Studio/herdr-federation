@@ -307,10 +307,24 @@ export class Federation {
           this.peerUi[peer.name] = peer.url;
           this.#mark(peer.name, true);
 
+          // Gossip LEARNS OF nodes; it no longer adopts them.
+          //
+          // Adopting predates membership and is now actively wrong. A peer we
+          // hold no token for cannot be synced with — every push and pull to it
+          // 401s or times out — so adoption only manufactures failing requests
+          // every cycle. Worse, it silently undoes a kick: measured on a six-node
+          // demo, a kicked node was gone from members and from peers.json and
+          // back in the in-memory peer list within one cycle, costing a failed
+          // request every 2s and drawing a phantom edge holding nothing.
+          //
+          // `known` is exactly the right home for "we have heard of this node":
+          // the console already renders it as "heard from, not joined" with a
+          // join button, which is the deliberate act adoption was pretending to be.
           if (this.config.gossip) {
             for (const cand of state.peers ?? []) {
-              const known = cand.name === this.config.node || this.#peers.some((p) => p.name === cand.name);
-              if (!known && cand.url) this.#peers.push({ ...cand, via: peer.name });
+              if (cand.name === this.config.node) continue;
+              if (this.#peers.some((p) => p.name === cand.name)) continue;
+              this.known[cand.name] = { node: cand.name, url: cand.url, lastHeard: new Date().toISOString() };
             }
           }
         } catch (err) {
