@@ -7,6 +7,8 @@ dist/
 web/tsconfig.tsbuildinfo
 # SwiftPM: .build holds the object tree AND the generated .app bundle
 app/tray/.build/
+app/node/.build/
+app/node/Package.resolved.lock
 
 # runtime state: this node's identity, its peers, its message log
 peers.json

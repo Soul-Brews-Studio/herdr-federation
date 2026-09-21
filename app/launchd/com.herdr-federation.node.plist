@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A federation node that survives a reboot — this is what issue #4
+  ("node dies on reboot") is answered by on macOS. The Linux answer is the
+  systemd user unit at app/systemd/herdr-federation.service; this is its
+  LaunchAgent counterpart for the Swift node.
+
+  Installed as a per-user LaunchAgent, not a LaunchDaemon: the node reads
+  $HOME/.config/herdr/herdr.sock, which is per-user, same reasoning as the
+  systemd unit next to this one.
+
+  __REPO__ is substituted by `just swift install` (sed, not launchctl) with
+  the absolute path of the checkout this plist was installed from; __HOME__
+  is substituted the same way with $HOME, since launchd does not expand `~`.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.herdr-federation.node</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>__HOME__/.local/bin/herdr-federation-node</string>
+	</array>
+
+	<key>WorkingDirectory</key>
+	<string>__REPO__</string>
+
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>FED_HOST</key>
+		<string>0.0.0.0</string>
+		<key>FED_ADVERTISE</key>
+		<string>__FED_ADVERTISE__</string>
+		<key>FED_ALLOW_LEGACY</key>
+		<string>__FED_ALLOW_LEGACY__</string>
+	</dict>
+
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+
+	<key>StandardOutPath</key>
+	<string>__HOME__/Library/Logs/herdr-federation/node.log</string>
+	<key>StandardErrorPath</key>
+	<string>__HOME__/Library/Logs/herdr-federation/node.err.log</string>
+</dict>
+</plist>
