@@ -49,6 +49,45 @@ final class IdentityTests: XCTestCase {
         XCTAssertTrue(verifySignature(message: msg, signature: mine, pubkeyHex: nodePubkey))
     }
 
+    /// identity.ts:52-55 accepts the stored record on truthiness alone and
+    /// rewrites the file ONLY when reading or parsing it threw. Validating the
+    /// PEM here and regenerating on failure destroyed the node's long-term key —
+    /// the thing peers' bans pin to — through a non-atomic overwrite of a file
+    /// with no backup. Measured on Bun: pubkey reported `abcd`, file rewritten
+    /// `false`.
+    func testAnUnparseablePemIsNotAKeyRotation() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fed-ident-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent(".fed-identity.json").path
+        let stored = #"{"pubkey":"abcd","privateKey":"not-a-pem","createdAt":"2026-01-01T00:00:00.000Z"}"#
+        try Data(stored.utf8).write(to: URL(fileURLWithPath: path))
+
+        let ident = try NodeIdentity.open(node: "t", path: path)
+        // the STORED pubkey, not one re-derived from the key
+        XCTAssertEqual(ident.pubkey, "abcd")
+        XCTAssertEqual(ident.identity.fingerprint, "abcd")
+        XCTAssertEqual(try String(contentsOfFile: path, encoding: .utf8), stored, "the file must not be rewritten")
+        // the parse failure surfaces at sign time, as a failed signature
+        XCTAssertEqual(ident.sign("anything"), "")
+    }
+
+    /// The stored pubkey wins even when the PEM is a perfectly good key for a
+    /// DIFFERENT pair — `new NodeIdentity(node, saved.pubkey, saved.privateKey)`.
+    func testStoredPubkeyIsReportedVerbatim() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fed-ident-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.appendingPathComponent(".fed-identity.json").path
+        let claimed = String(repeating: "ab", count: 32)
+        let record = #"{"pubkey":"\#(claimed)","privateKey":"\#(nodePEM.replacingOccurrences(of: "\n", with: "\\n"))"}"#
+        try Data(record.utf8).write(to: URL(fileURLWithPath: path))
+        let ident = try NodeIdentity.open(node: "t", path: path)
+        XCTAssertEqual(ident.pubkey, claimed)
+        // and it still signs with the key the PEM actually holds
+        XCTAssertTrue(verifySignature(message: "m", signature: ident.sign("m"), pubkeyHex: nodePubkey))
+    }
+
     func testSecretShape() {
         let s = secret()
         XCTAssertEqual(s.count, 32)

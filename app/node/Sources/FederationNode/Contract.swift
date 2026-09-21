@@ -205,22 +205,55 @@ extension KeyedDecodingContainer {
     }
 }
 
-/// One encoder / decoder configuration for every wire and disk write. Slashes
-/// are not escaped (JS does not), keys keep their declared order, and nothing is
-/// pretty-printed unless the Bun file is (`JSON.stringify(x, null, 2)`).
+/// One encoder / decoder configuration for every wire and disk write.
+///
+/// Encoding is `JSONStringify`, not Foundation's JSONEncoder: members come out in
+/// declaration order, slashes are not escaped, numbers print as JavaScript
+/// prints them, and `pretty` is exactly `JSON.stringify(x, null, 2)`. For a
+/// struct that is byte for byte what the Bun node writes. The one thing that
+/// still differs is a `[String: …]` member — a Swift Dictionary has no insertion
+/// order, and JSONDecoder returns Dictionaries, so `Record<string, …>` fields
+/// (peerMembers, peerUi, relayed, meshMembers, peerPanes, a call's params) keep
+/// a random member order. A conformance check must compare those parsed.
 public enum JSONCoding {
-    public static func encoder(pretty: Bool = false) -> JSONEncoder {
-        let e = JSONEncoder()
-        e.outputFormatting = pretty ? [.prettyPrinted, .withoutEscapingSlashes] : [.withoutEscapingSlashes]
-        return e
-    }
     public static let decoder = JSONDecoder()
 
     public static func encode<T: Encodable>(_ v: T, pretty: Bool = false) throws -> Data {
-        try encoder(pretty: pretty).encode(v)
+        try JSONStringify.data(v, pretty: pretty)
     }
     public static func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         try decoder.decode(type, from: data)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// Decode an array ELEMENT BY ELEMENT, dropping the ones that will not
+    /// parse. The Bun node never validates these: federation.ts does one
+    /// `JSON.parse(raw)` into a loose cast and then reads `state.messages ?? []`,
+    /// `state.members ?? []`, `state.federated ?? []`. A peer that omits one
+    /// field of one row must therefore cost that row, not the whole pull — a
+    /// strict container decode turned that into a permanent `SyntaxError: JSON
+    /// Parse error` on the link, with the roster, kicks and messages all
+    /// discarded, where Bun absorbed the body.
+    ///
+    /// Returns nil only when the key itself is missing or is not an array.
+    public func decodeLenientArrayIfPresent<T: Decodable>(_ type: T.Type, forKey key: Key) -> [T]? {
+        guard let raw = try? decodeIfPresent([JSONValue].self, forKey: key) else { return nil }
+        return raw.compactMap { element in
+            guard let data = try? JSONCoding.encode(element) else { return nil }
+            return try? JSONCoding.decode(T.self, from: data)
+        }
+    }
+
+    /// The `Record<string, …>` counterpart: keep the entries that parse.
+    public func decodeLenientDictionaryIfPresent<T: Decodable>(_ type: T.Type, forKey key: Key) -> [String: T]? {
+        guard let raw = try? decodeIfPresent([String: JSONValue].self, forKey: key) else { return nil }
+        var out: [String: T] = [:]
+        for (k, v) in raw {
+            guard let data = try? JSONCoding.encode(v), let decoded = try? JSONCoding.decode(T.self, from: data) else { continue }
+            out[k] = decoded
+        }
+        return out
     }
 }
 
@@ -292,7 +325,13 @@ public struct HerdrPane: Codable, Sendable, Equatable {
 }
 
 public struct HerdrSnapshot: Codable, Sendable, Equatable {
-    public var version: Int?
+    /// protocol.ts declares `version?: number`, and that is wrong: herdr 0.9.1
+    /// (protocol 22) sends `"version":"0.9.1"`, a STRING. Bun casts the parsed
+    /// JSON instead of decoding it, so five live nodes never noticed; a Swift
+    /// decode typed `Int?` threw `typeMismatch` on every snapshot. Any other
+    /// type in this slot is dropped rather than failing the snapshot — the
+    /// closest thing to a cast that never looked.
+    public var version: String?
     public var protocolVersion: Int?
     public var focused_workspace_id: String?
     public var focused_tab_id: String?
@@ -315,7 +354,7 @@ public struct HerdrSnapshot: Codable, Sendable, Equatable {
     /// Every array is optional on the wire (`snap.panes ?? []` in server.ts).
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        version = try c.decodeIfPresent(Int.self, forKey: .version)
+        version = (try? c.decodeIfPresent(String.self, forKey: .version)) ?? nil
         protocolVersion = try c.decodeIfPresent(Int.self, forKey: .protocolVersion)
         focused_workspace_id = try c.decodeIfPresent(String.self, forKey: .focused_workspace_id)
         focused_tab_id = try c.decodeIfPresent(String.self, forKey: .focused_tab_id)
@@ -328,16 +367,22 @@ public struct HerdrSnapshot: Codable, Sendable, Equatable {
 }
 
 /// `pane.read` — a `visible` read carries revision 0; diff on the text.
+///
+/// protocol.ts types `source`, `format` and `text` as required, but server.ts
+/// reads `read.text ?? ""` and `String(read?.text ?? "")` — a reply without
+/// `text` is an empty frame there, never a failure. Optional here for the same
+/// reason; `source` and `format` are never read by the node at all. herdr 0.9.1
+/// sends all three on every reply (verified live).
 public struct HerdrPaneRead: Codable, Sendable, Equatable {
     public var pane_id: String
     public var workspace_id: String?
     public var tab_id: String?
-    public var source: String
-    public var format: String
-    public var text: String
+    public var source: String?
+    public var format: String?
+    public var text: String?
     public var revision: Int?
     public var truncated: Bool?
-    public init(pane_id: String, source: String, format: String, text: String) {
+    public init(pane_id: String, source: String?, format: String?, text: String?) {
         self.pane_id = pane_id; self.source = source; self.format = format; self.text = text
     }
 }
@@ -388,7 +433,13 @@ public protocol HerdrClient: AnyObject, Sendable {
     func snapshot() async throws -> HerdrSnapshot
     func agents() async throws -> [HerdrPane]
     /// `pane.read` with `source` defaulting to `visible`, `lines` 200, `format` text.
-    func readPane(_ paneId: String, source: String?, lines: Int?, format: String?) async throws -> HerdrPaneRead
+    ///
+    /// `lines` is a `JSONValue`, not an `Int?`, because the Bun node can and does
+    /// put a NON-NUMBER there: `/api/pane/<id>?lines=abc` is `Number("abc")` =
+    /// NaN, herdr.ts's `opts.lines ?? 200` is nullish so NaN survives, and the
+    /// request goes out as `"lines":null` with a `--lines NaN` cli line. `Int?`
+    /// cannot express that; `.number(.nan)` can. nil = the key was absent.
+    func readPane(_ paneId: String, source: String?, lines: JSONValue?, format: String?) async throws -> HerdrPaneRead
     /// Raw bytes, no bracketed paste, no Enter.
     func sendText(_ paneId: String, _ text: String) async throws
     /// herdr's key grammar: `Enter`, `Escape`, `ctrl+c`, `shift+tab`, single characters.
@@ -473,6 +524,23 @@ public struct PeerView: Codable, Sendable, Equatable {
     public var lastOkAt: String?
     public var consecutive: Int?
     public init(name: String, url: String) { self.name = name; self.url = url }
+
+    /// A peer builds this row from `{ name: p.name, url: p.url, ...health }`, so
+    /// a peers.json entry with no `url` emits an object with no `url` key and
+    /// Bun reads it back as `undefined`. Neither field is required on the wire.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ k: CodingKeys) -> String? { ((try? c.decodeIfPresent(String.self, forKey: k)) ?? nil) }
+        name = str(.name) ?? ""
+        url = str(.url) ?? ""
+        via = str(.via)
+        ok = (try? c.decodeIfPresent(Bool.self, forKey: .ok)) ?? nil
+        lastError = str(.lastError)
+        lastErrorAt = str(.lastErrorAt)
+        lastSeen = str(.lastSeen)
+        lastOkAt = str(.lastOkAt)
+        consecutive = (try? c.decodeIfPresent(Int.self, forKey: .consecutive)) ?? nil
+    }
 }
 
 public struct KnownNode: Codable, Sendable, Equatable {
@@ -492,6 +560,29 @@ public struct FedMessage: Codable, Sendable, Equatable {
     public var at: String
     public init(id: String, node: String, seq: Int, from: String, text: String, at: String) {
         self.id = id; self.node = node; self.seq = seq; self.from = from; self.text = text; self.at = at
+    }
+
+    /// federation.ts:248 accepts an incoming message on `if (m?.id && …)` and
+    /// nothing else — no field is required beyond a truthy `id`. A strict decode
+    /// here answered `{"added":0}` to a whole batch that Bun ingested, and lost
+    /// the sender introduction with it. `id` stays required (it IS the dedup
+    /// key, and a falsy one is rejected on both runtimes); the rest default.
+    ///
+    /// DIVERGENCE, small and deliberate: Bun keeps an absent `at` as `undefined`
+    /// and `JSON.stringify` drops the key on re-export, where this stores "" and
+    /// emits `"at":""`. Losing a key beats losing the message.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func str(_ k: CodingKeys) -> String { ((try? c.decodeIfPresent(String.self, forKey: k)) ?? nil) ?? "" }
+        id = str(.id)
+        guard !id.isEmpty else {
+            throw DecodingError.keyNotFound(CodingKeys.id, .init(codingPath: c.codingPath, debugDescription: "message has no id"))
+        }
+        node = str(.node)
+        seq = ((try? c.decodeIfPresent(Int.self, forKey: .seq)) ?? nil) ?? 0
+        from = str(.from)
+        text = str(.text)
+        at = str(.at)
     }
 }
 
@@ -563,13 +654,15 @@ public struct HeyResponse: Codable, Sendable, Equatable {
 public struct BroadcastTarget: Codable, Sendable { public var handle: String; public var pane: String?; public var node: String?; public var base: String? }
 public struct BroadcastRequest: Codable, Sendable { public var targets: [BroadcastTarget]?; public var text: String? }
 public struct BroadcastResult: Codable, Sendable, Equatable {
-    public var handle: String
+    /// `{ handle: t.handle, … }` — a target that carried no handle makes this
+    /// `undefined`, and `JSON.stringify` omits the key. Optional, so it does.
+    public var handle: String?
     public var node: String?
     public var ok: Bool
     /// "local" | "peer"
     public var via: String?
     public var error: String?
-    public init(handle: String, node: String?, ok: Bool, via: String? = nil, error: String? = nil) { self.handle = handle; self.node = node; self.ok = ok; self.via = via; self.error = error }
+    public init(handle: String?, node: String?, ok: Bool, via: String? = nil, error: String? = nil) { self.handle = handle; self.node = node; self.ok = ok; self.via = via; self.error = error }
 }
 public struct BroadcastResponse: Codable, Sendable { public var results: [BroadcastResult]; public init(results: [BroadcastResult]) { self.results = results } }
 
@@ -582,13 +675,14 @@ public struct LeaveResponse: Codable, Sendable { public var left: String; public
 
 /// What a hub republishes about ONE of its direct peers. Strictly one hop.
 public struct RelayedPeer: Codable, Sendable, Equatable {
-    /// the hub this came through — filled in by the receiving spoke
-    public var via: String?
     public var url: String?
     public var members: [Member]
     public var ok: Bool?
     public var lastOkAt: String?
     public var consecutive: Int?
+    /// the hub this came through — filled in by the receiving spoke
+    /// (`{ ...r, via, members }` appends it, so it is the last member on the wire)
+    public var via: String?
     public init(via: String? = nil, url: String?, members: [Member], ok: Bool?, lastOkAt: String?, consecutive: Int?) {
         self.via = via; self.url = url; self.members = members; self.ok = ok; self.lastOkAt = lastOkAt; self.consecutive = consecutive
     }
@@ -637,17 +731,22 @@ public struct FedState: Codable, Sendable, Equatable {
         self.node = node; self.identity = identity; self.messages = messages; self.members = members; self.peers = peers; self.federated = federated; self.kicks = kicks; self.relayed = relayed
     }
 
-    /// A pull tolerates a peer that omits any array (`state.messages ?? []`).
+    /// A pull tolerates a peer that omits any array (`state.messages ?? []`) AND
+    /// a peer that sends one bad ROW in an otherwise fine array: federation.ts
+    /// requires nothing past `JSON.parse`, so a strict container decode here
+    /// would fail the whole link — every `FED_SYNC_MS`, forever — over one
+    /// missing field. Each element is decoded on its own and the ones that will
+    /// not parse are dropped.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        node = try c.decodeIfPresent(String.self, forKey: .node) ?? ""
-        identity = try c.decodeIfPresent(Identity.self, forKey: .identity)
-        messages = try c.decodeIfPresent([FedMessage].self, forKey: .messages) ?? []
-        members = try c.decodeIfPresent([Member].self, forKey: .members) ?? []
-        peers = try c.decodeIfPresent([PeerView].self, forKey: .peers) ?? []
-        federated = try c.decodeIfPresent([MemberRecord].self, forKey: .federated)
-        kicks = try c.decodeIfPresent([AuditEntry].self, forKey: .kicks)
-        relayed = try c.decodeIfPresent([String: RelayedPeer].self, forKey: .relayed)
+        node = ((try? c.decodeIfPresent(String.self, forKey: .node)) ?? nil) ?? ""
+        identity = (try? c.decodeIfPresent(Identity.self, forKey: .identity)) ?? nil
+        messages = c.decodeLenientArrayIfPresent(FedMessage.self, forKey: .messages) ?? []
+        members = c.decodeLenientArrayIfPresent(Member.self, forKey: .members) ?? []
+        peers = c.decodeLenientArrayIfPresent(PeerView.self, forKey: .peers) ?? []
+        federated = c.decodeLenientArrayIfPresent(MemberRecord.self, forKey: .federated)
+        kicks = c.decodeLenientArrayIfPresent(AuditEntry.self, forKey: .kicks)
+        relayed = c.decodeLenientDictionaryIfPresent(RelayedPeer.self, forKey: .relayed)
     }
 }
 
@@ -684,10 +783,14 @@ public struct PaneClientMessage: Codable, Sendable {
 public enum InviteStatus: String, Codable, Sendable { case active, expired, revoked, exhausted }
 
 /// An invite link. `token` and `url` are present only on the issuing node.
+///
+/// Declared in the order the bytes carry, not the order wire.ts's TYPE lists:
+/// members.ts builds `{ ...stored, status, url }`, so `status` and `url` come
+/// last, and `revokedAt` — assigned onto the stored object later — sits after
+/// `usedBy`.
 public struct InviteLink: Codable, Sendable, Equatable {
     public var id: String
     @NullIfNil public var token: String?
-    @NullIfNil public var url: String?
     public var createdAt: String
     public var createdBy: String
     /// null = never expires
@@ -696,9 +799,10 @@ public struct InviteLink: Codable, Sendable, Equatable {
     @NullIfNil public var maxUses: Int?
     public var uses: Int
     public var note: String?
-    public var revokedAt: String?
     public var usedBy: [InviteUse]
+    public var revokedAt: String?
     public var status: InviteStatus
+    @NullIfNil public var url: String?
     public init(id: String, token: String?, url: String?, createdAt: String, createdBy: String, expiresAt: String?, maxUses: Int?, uses: Int, note: String?, revokedAt: String?, usedBy: [InviteUse], status: InviteStatus) {
         self.id = id; self.token = token; self.url = url; self.createdAt = createdAt; self.createdBy = createdBy; self.expiresAt = expiresAt; self.maxUses = maxUses; self.uses = uses; self.note = note; self.revokedAt = revokedAt; self.usedBy = usedBy; self.status = status
     }
@@ -797,9 +901,10 @@ public struct AdminState: Codable, Sendable, Equatable {
     public var meshMembers: [String: [MemberRecord]]
     public var adoptable: [AuditEntry]
     public var edges: [FedEdge]
+    /// before `panes` — the literal at server.ts:646 lists heard, panes, peerPanes
+    public var heard: [KnownNode]
     public var panes: [Member]
     public var peerPanes: [String: [Member]]
-    public var heard: [KnownNode]
     public var relayed: [String: RelayedPeer]?
     public init(node: String, identity: Identity, legacyAllowed: Bool, members: [MemberRecord], invites: [InviteLink], bans: [BanRecord], audit: [AuditEntry], meshMembers: [String: [MemberRecord]], adoptable: [AuditEntry], edges: [FedEdge], panes: [Member], peerPanes: [String: [Member]], heard: [KnownNode], relayed: [String: RelayedPeer]?) {
         self.node = node; self.identity = identity; self.legacyAllowed = legacyAllowed; self.members = members; self.invites = invites; self.bans = bans; self.audit = audit; self.meshMembers = meshMembers; self.adoptable = adoptable; self.edges = edges; self.panes = panes; self.peerPanes = peerPanes; self.heard = heard; self.relayed = relayed
@@ -808,11 +913,18 @@ public struct AdminState: Codable, Sendable, Equatable {
 
 /// `POST /api/invites` — `{ hours = 24, uses = null, note }`: an ABSENT hours is
 /// 24, an explicit null is "never expires"; uses absent or null is unlimited.
+///
+/// `hours` and `uses` are `Double`, not `Int`: members.ts does `hours * 3600_000`
+/// on whatever arrived, so `{"hours":0.5}` is a 30-minute invite on the fleet.
+/// Typing them as `Int` made the WHOLE struct fail to decode on a fractional or
+/// string value, and every field then reverted to its default — an invite asked
+/// to live 30 minutes lived 24 hours. The route now reads the keys one at a time
+/// with `Number()` coercion, so one odd field cannot extend another's lifetime.
 public struct CreateInviteRequest: Codable, Sendable {
-    public var hours: Nullable<Int> = .absent
-    public var uses: Nullable<Int> = .absent
+    public var hours: Nullable<Double> = .absent
+    public var uses: Nullable<Double> = .absent
     public var note: String?
-    public init(hours: Nullable<Int> = .absent, uses: Nullable<Int> = .absent, note: String? = nil) { self.hours = hours; self.uses = uses; self.note = note }
+    public init(hours: Nullable<Double> = .absent, uses: Nullable<Double> = .absent, note: String? = nil) { self.hours = hours; self.uses = uses; self.note = note }
 }
 public struct CreateInviteResponse: Codable, Sendable { public var invite: InviteLink; public init(invite: InviteLink) { self.invite = invite } }
 public struct InvitesResponse: Codable, Sendable { public var invites: [InviteLink]; public init(invites: [InviteLink]) { self.invites = invites } }
@@ -831,9 +943,19 @@ public struct FedRedeemRequest: Codable, Sendable, Equatable {
     public var offerToken: String
     public var at: String
     public var sig: String
-    public init(token: String, node: String, pubkey: String, url: String?, offerToken: String, at: String, sig: String) {
-        self.token = token; self.node = node; self.pubkey = pubkey; self.url = url; self.offerToken = offerToken; self.at = at; self.sig = sig
+    /// NOT on the wire. members.ts:201 records a rejection under
+    /// `req.node ?? "unknown"`, so an ABSENT `node` key reads "unknown" in the
+    /// audit log while an explicit `""` stays `""` — `??` catches only
+    /// null/undefined. A plain `String` cannot tell those apart, so the route
+    /// records which it saw.
+    public var nodePresent: Bool = true
+    /// `nodePresent` is deliberately excluded: it is presence, not payload.
+    enum CodingKeys: String, CodingKey { case token, node, pubkey, url, offerToken, at, sig }
+    public init(token: String, node: String, pubkey: String, url: String?, offerToken: String, at: String, sig: String, nodePresent: Bool = true) {
+        self.token = token; self.node = node; self.pubkey = pubkey; self.url = url; self.offerToken = offerToken; self.at = at; self.sig = sig; self.nodePresent = nodePresent
     }
+    /// members.ts's `req.node ?? "unknown"`.
+    public var auditNode: String { nodePresent ? node : "unknown" }
 }
 public struct FedRedeemResponse: Codable, Sendable, Equatable {
     public var node: String
@@ -1014,6 +1136,20 @@ public protocol FederationSync: AnyObject, Sendable {
     func relayed() async -> [String: RelayedEntry]
     func peerFederated() async -> [String: [MemberRecord]]
     func peerKicks() async -> [String: [AuditEntry]]
+
+    // The same three maps in INSERTION order. Contract.swift waives member order
+    // for `Record<string, …>` OBJECT fields only; `known`, `heard`, `adoptable`
+    // and the relayed rows appended to `/api/status.peers` are ARRAYS, where
+    // order survives parsing and is what the console renders. Bun builds them
+    // with `Object.values(...)` / `Object.entries(...)`, i.e. the order nodes
+    // were first heard of or first relayed; a Swift Dictionary's order is seeded
+    // per process and shifts as it grows. These preserve it.
+    /// `Object.values(fed.known)`
+    func knownList() async -> [KnownNode]
+    /// `Object.entries(fed.relayed)`
+    func relayedList() async -> [(name: String, entry: RelayedEntry)]
+    /// `Object.entries(fed.peerKicks)`
+    func peerKicksList() async -> [(from: String, entries: [AuditEntry])]
     func stats() async -> Stats
     func messages() async -> [FedMessage]
     func advertised() async -> String?
@@ -1039,10 +1175,15 @@ public protocol FederationSync: AnyObject, Sendable {
 }
 
 /// `String(err)` for a failed peer call — the text that lands in `PeerHealth.lastError`.
+/// `name` is the JS error class: `Error` for a fetch that could not connect,
+/// `TimeoutError` for an `AbortSignal.timeout`, `SyntaxError` for a reply that
+/// was not JSON. `errorText()` strips only `Error:`, exactly as server.ts's
+/// `.replace(/^Error:\s*/, "")` does — so `TimeoutError: …` reaches the wire whole.
 public struct FederationError: Error, CustomStringConvertible, Sendable, Equatable {
+    public var name: String
     public var message: String
-    public init(_ message: String) { self.message = message }
-    public var description: String { "Error: \(message)" }
+    public init(_ message: String, name: String = "Error") { self.message = message; self.name = name }
+    public var description: String { "\(name): \(message)" }
 }
 
 // MARK: - server.ts — what the routes and the pane stream share

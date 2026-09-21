@@ -123,6 +123,171 @@ on whichever got there first — measured: a second node started from a bunx cac
 reported `peers: 0` while the real node beside it held three healthy links. Use
 `FED_PORT` for a second node, or stop the first.
 
+## Swift node (macOS)
+
+A second implementation of the same node, in Swift instead of Bun: one binary,
+Hummingbird for HTTP/WebSocket, CryptoKit for identity, no `node_modules`, no
+runtime to install. It speaks the exact same wire — `peers.json`, the four
+`.fed-*.json` state files, every route in [the socket contract](#the-socket-contract-as-used) —
+so a Bun peer cannot tell which runtime answered it. Linux nodes stay on Bun;
+this is macOS only.
+
+Why bother maintaining two implementations of one protocol: a bug that shows up
+in **both** is the protocol's fault, and a bug that shows up in only **one** is
+that runtime's. That distinction is not available with a single implementation
+— everything looks like "the protocol", including bugs that are really just Bun
+or Node quirks. Longer term the Swift node and the menu-bar tray (`app/tray`)
+become one process, so the fleet's macOS boxes run a single binary instead of a
+Bun node plus a Swift tray talking to it over HTTP.
+
+```sh
+just swift build      # swift build --package-path app/node
+just swift test       # swift test  --package-path app/node
+just swift run        # foreground, same FED_* env as `just node start`
+just swift smoke      # scratch node in .tmp/, hits every route, tears down
+```
+
+The same `FED_*` environment table above applies unchanged — `FED_CONFIG`,
+`FED_STATE`, `FED_IDENTITY`, `FED_MEMBERS`, `FED_HOST`/`FED_PORT`,
+`FED_ADVERTISE`, `FED_ALLOW_LEGACY`, `FED_LOG`, `HERDR_SOCKET_PATH` all mean
+the same thing to both runtimes.
+
+To run it as the machine's federation node rather than from a build tree:
+
+```sh
+just swift install     # release build → ~/.local/bin, LaunchAgent loaded
+just swift uninstall   # unload the LaunchAgent, remove the binary
+```
+
+`just swift install` loads `app/launchd/com.herdr-federation.node.plist` as a
+per-user LaunchAgent (`RunAtLoad`, `KeepAlive`) — the macOS answer to the same
+problem the systemd user unit (`app/systemd/herdr-federation.service`) answers
+on Linux: **issue #4, the node dies on reboot.** Logs land in
+`~/Library/Logs/herdr-federation/`.
+
+### Parity
+
+`just swift conformance` (`app/node/utils/conformance.ts`) boots a Bun node and a
+Swift node side by side from scratch state under `.tmp/conformance/`, sends each
+the same request, and compares status, content-type and the body **parsed** —
+never the bytes. A Swift `Dictionary` has no insertion order, so a
+`Record<string, …>` field (`peerMembers`, `peerUi`, `relayed`, `meshMembers`,
+`peerPanes`, a call's `params`) may carry its members in a different order;
+every other object is checked against the order the Bun literal builds it in,
+and every Swift body must be `JSON.stringify`-stable (re-serialising the parsed
+body reproduces the bytes: escaping, number format, no whitespace). Then the two
+runtimes federate with each other in both directions, on five pairs with
+identical histories, and the same role is compared across runtimes — Bun issuer
+against Swift issuer, Bun joiner against Swift joiner, Bun kicker against Swift
+kicker, Bun kicked node against Swift kicked node. The pane WebSocket is opened
+on both and the frames compared. Panes are only ever READ: the harness sends no
+text and no keys to any pane, and it prints a token's length, never a token.
+
+Measured 2026-09-22 on m5 — bun 1.3.14, Swift 6.3.3, herdr 0.9.1 (protocol 22),
+63 panes on the real socket. **170 checks · 170 pass · 8 known divergences · 0 fail**,
+and `swift test` is **64 tests · 64 pass**,
+and every one of the twelve ports it binds comes back free. Both nodes run with
+the fleet's real `FED_LOG=access`, and their access logs are compared too.
+
+| case | bun | swift | verdict |
+|---|---|---|---|
+| 75 single-node requests: every route, good and bad input, wrong methods, the console, a real pane read | | | 73 same · 2 known (below) |
+| the same 75, replayed on a second pair with an identical history | | | 0 differences — the quiet pass added no row |
+| `ws://…/ws/pane/<real>`, 2 s of frames on each | first message `frame`, 3279 chars | first message `frame`, 3279 chars | 3/3 same — type, non-empty text, and herdr's `revision` agree |
+| `FED_LOG=access`: every line each node wrote for the same 75 requests, scrubbed of the clock, the ms column, the node name and the random invite id/secret | 77 lines | 79 lines | known — the two extra Swift lines are the two 500s Bun never logged (below) |
+| A: Bun issues an invite, Swift redeems it — redeem steps 1–5, both links ok after two sync cycles, the full herdr roster held each way, message logs converged, tokens authenticate in both directions, `/api/admin` edge mutual on both sides | | | 7/7 ok |
+| B: Swift issues, Bun redeems — the same seven checks | | | 7/7 ok |
+| D: Swift issues, Bun redeems, no herdr at all, `FED_ALLOW_LEGACY=0` on both — the same seven checks | | | 7/7 ok |
+| a second invite redeemed by a node that is ALREADY a member, each way | 200 | 200 | 2/2 ok — the member row is upserted, never duplicated |
+| routing by node name ACROSS the runtime boundary — `/api/fleet/pane` at the peer (good id and bad), `/api/fleet/hey` and `/api/fed/relay` at the peer for an unknown agent | 200 / 400 / 404 / 404 | 200 / 400 / 404 / 404 | 8/8 same |
+| `FED_ALLOW_LEGACY=0`, no token: `GET /api/fed/state`, `POST /api/fed/ingest` | 401 | 401 | 2/2 same |
+| D killed and restarted on the SAME state dirs — nothing rewrites `peers.json` | link ok | link ok | same — both runtimes read their peer and its token back off `.fed-members.json` and resume syncing, and `/api/fed/state` is still 401 without a token |
+| F and G: strict pairs federate, then the issuer kicks the member — once with Bun holding the knife, once with Swift | | | 22/22 ok — kick 200, the kicked node's next sync is `Error: 401` with `consecutive` ≥ 1, the kicker's `peers` is empty, and a kick OF the reader is never `adoptable` BY the reader |
+| same role across runtimes — `/api/status`, `/api/admin`, `/api/members`, `/api/fed/state`, `/api/invites`, `/api/audit` for the two issuers, the two joiners, the two kickers and the two kicked nodes | 200 (401 for `/api/fed/state` when strict) | 200 / 401 | 24/24 same |
+| herdr socket missing, and bound with no listener: `GET /api/status`, `GET /api/calls` — the sync loop logs `connect ENOENT <path>` on both | 200 | 200 | same |
+| `POST /api/hey` and `POST /api/fed/hey` with a body that is not JSON | 500 `text/html`, and **no access-log line** | 500 `text/plain`, logged | known — `Bun.serve` runs in development mode on the fleet (`NODE_ENV` is never set) and answers its HTML stack-trace page; and the throw leaves `handle()` before the `done()` wrapper that writes the access line, so Bun's log has no record it answered at all |
+| herdr socket missing or stale: the first `GET /api/pane/<id>` | 502 `Error: pane.read: connection closed with no reply`, then the **process exits** | 502 `Error: connect ENOENT <path>`, still serving | known — Bun 1.3.14 emits `close` before `error` and the late `error` event is uncaught (herdr.ts:97); the Swift node does not port a crash |
+
+Two things the harness turned up that are worth an operator's attention, and
+belong to BOTH runtimes rather than to the port:
+
+- `GET /api/invite-preview/<secret>` puts a live invite secret in the URL, and
+  `FED_LOG=access` is on by default — so every node on the fleet is writing
+  invite secrets to its own log, Bun and Swift alike. The harness scrubs them
+  before it compares or prints anything; the nodes do not.
+- an unparseable request body is answered 500 by Bun with **no access-log line
+  at all**, so a log is not a complete record of what a node replied to.
+
+One Swift-side deviation was found by this harness and fixed rather than
+recorded: a peer row in `/api/status` put `lastOkUrl` before
+`lastError`/`lastErrorAt`. `#mark`'s success branch writes
+`lastError: undefined, lastErrorAt: undefined` **before** `lastOkUrl`, so a
+healthy link drops those two keys while keeping their slots, and the first
+failure fills the slots where they already sit — ahead of `lastOkUrl`.
+`StatusPeerRow` now declares them in that order and the run reports **no member
+order difference anywhere**. Still not reproduced, and documented in
+`Routes.swift`: a link whose FIRST mark was a failure never ran the success
+branch, so Bun seeds it `consecutive, ok, lastError, lastErrorAt` and appends
+the three success keys later — one struct cannot carry both orders.
+
+The state files both runtimes write — `peers.json`, `.fed-state.json`,
+`.fed-members.json`, `.fed-identity.json` — have the same key layout on both
+sides and are exactly `JSON.stringify(x, null, 2)` (the state log:
+`JSON.stringify(x)`) of their content: the Swift node serialises with its own
+`JSON.stringify` (`JSONStringify.swift`), not Foundation's JSONEncoder, whose
+member order is random per process.
+
+Bun behaviour the port measured and kept, rather than fixed:
+
+- every failed unix-socket `connect()` is reported as `connect ENOENT <path>` —
+  a bound socket nobody listens on (kernel `ECONNREFUSED`), a `chmod 000` socket
+  (`EACCES`), a directory or a plain file (`ENOTSOCK`) all print `ENOENT` under
+  Bun, where Node 26 prints the real name. The Swift node says what Bun says.
+- `session.snapshot` carries `"version":"0.9.1"` — a string; `protocol.ts`
+  declares `version?: number`. Bun casts and never noticed.
+- the port guard's hint hardcodes `FED_PORT=6751` whatever port was refused
+  (server.ts:270).
+- `FED_ALLOW_LEGACY` is on by default, so every members-only federation endpoint
+  answers any caller as `(legacy, unverified)` until an operator sets it to `0`.
+- `.fed-identity.json` is accepted on TRUTHINESS alone — `if (saved.privateKey &&
+  saved.pubkey)`, no validation — and the reported pubkey is the one ON DISK, not
+  one re-derived from the PEM. Validating it here and regenerating on failure
+  would destroy the node's long-term key, the thing peers' bans pin to, through a
+  non-atomic overwrite of a file with no backup. A PEM that will not parse is a
+  failed signature, never a new identity. Measured on Bun with a hand-written
+  `{"pubkey":"abcd","privateKey":"not-a-pem"}`: pubkey reported `abcd`, file
+  rewritten `false`.
+- `.fed-identity.json` and `.fed-members.json` are written 0644 — `Bun.write`'s
+  mode, and `.fed-members.json` holds every token in cleartext. Tightening it
+  would be a deliberate divergence from five live nodes, so it is recorded here
+  rather than changed.
+- `POST /api/invites {"hours":0.5}` really is a 30-minute invite: members.ts does
+  `hours * 3600_000` on whatever arrived and never type-checks. `{"hours":"abc"}`
+  makes `new Date(NaN).toISOString()` throw RangeError out of `handle()`, so both
+  runtimes answer **500**. Measured on Bun: `+30 min`, summary `· 0.5h ·`, and 500.
+- `GET /api/pane/<id>?lines=abc` sends `"lines":null` on the wire with a
+  `--lines NaN` cli line — `Number("abc")` is NaN and herdr.ts's `?? 200` is
+  nullish, so NaN survives. Both runtimes now send exactly that.
+- a pulled `/api/fed/state` is read row by row: federation.ts validates nothing
+  past `JSON.parse`, so one peer row missing `url`, or one message missing `at`,
+  costs that field and not the link. Only a message with no `id` is dropped,
+  which is Bun's whole filter (`if (m?.id && …)`).
+
+Three places where this port cannot reach the Bun byte and says so instead:
+
+- a message ingested without `at` is stored `at: ""` here and `undefined` on Bun,
+  so re-exporting it emits `"at":""` where Bun omits the key. Losing a key beats
+  losing the message, which is what a strict decode did.
+- a peer's `relayed` object arrives as a Swift `Dictionary`, which has already
+  thrown away the JSON key order Bun would have iterated. New relayed names are
+  therefore merged in sorted order — deterministic, but not Bun's. `known`,
+  `heard`, `adoptable` and the relayed rows on `/api/status.peers` do keep true
+  insertion order now (`OrderedMap` in `Federation.swift`).
+- a NaN `FED_PORT` / `FED_SYNC_MS` / `FED_PANE_MS` falls back to the default here.
+  Bun hands NaN straight to `Bun.serve` / `setInterval` and what those do was not
+  measured. The two reachable cases do match: `FED_PORT=` (exported empty) is 0,
+  i.e. an ephemeral port, and `FED_PORT="6751 "` is 6751.
+
 ## For an AI agent
 
 `skills/herdr-federation/SKILL.md` is a [SKILL.md](https://code.claude.com/docs/en/skills)

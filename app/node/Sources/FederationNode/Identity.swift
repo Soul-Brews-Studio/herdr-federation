@@ -20,9 +20,16 @@ private let pkcs8Prefix = Data([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 
 public func fingerprint(_ pubkeyHex: String) -> String { String(pubkeyHex.prefix(Const.fingerprintChars)) }
 
 /// The secret in an invite link, and the token a membership rides on: 24 random bytes, base64url.
+///
+/// The status is checked, not discarded: on a CSPRNG failure the buffer would
+/// still hold its zero fill and this would hand back the constant base64url of
+/// 24 zero bytes — as an invite secret AND as a member token. `randomBytes(24)`
+/// throws in identity.ts, so failing loudly is also the parity behaviour.
 public func secret() -> String {
     var bytes = [UInt8](repeating: 0, count: Const.secretBytes)
-    _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+        fatalError("secret: CSPRNG failed")
+    }
     return Data(bytes).base64url()
 }
 
@@ -59,14 +66,21 @@ extension Data {
 
 public final class NodeIdentity: Sendable {
     public let node: String
-    /// raw ed25519 public key, hex
+    /// raw ed25519 public key, hex — the value ON DISK, not one re-derived from
+    /// the PEM. identity.ts hands `saved.pubkey` straight to the constructor, so
+    /// a file whose two halves disagree reports the same pubkey on both runtimes.
     public let pubkey: String
-    private let key: Curve25519.Signing.PrivateKey
+    /// the PKCS#8 PEM exactly as it sits in `.fed-identity.json`. Held as text,
+    /// not as a parsed key, because `sign()` in identity.ts calls
+    /// `createPrivateKey(this.privatePem)` per signature — the parse happens at
+    /// sign time there, and a PEM that will not parse is a failed signature, NOT
+    /// a reason to mint a new identity.
+    private let privatePem: String
 
-    private init(node: String, key: Curve25519.Signing.PrivateKey) {
+    private init(node: String, pubkey: String, privatePem: String) {
         self.node = node
-        self.key = key
-        self.pubkey = key.publicKey.rawRepresentation.hex()
+        self.pubkey = pubkey
+        self.privatePem = privatePem
     }
 
     private struct Saved: Codable {
@@ -76,25 +90,40 @@ public final class NodeIdentity: Sendable {
     }
 
     /// Load the keypair from disk, or make one on first boot and persist it.
+    ///
+    /// BUN: `if (saved.privateKey && saved.pubkey) return new NodeIdentity(...)` —
+    /// the stored record is accepted on TRUTHINESS alone, with no validation, and
+    /// the file is rewritten only when reading or parsing the JSON threw. Anything
+    /// stricter here would rotate the node's long-term key — the thing peers' bans
+    /// pin to — behind an unrecoverable, non-atomic overwrite of a file that has
+    /// no backup. Measured: a `.fed-identity.json` holding a non-PEM privateKey
+    /// boots on Bun with the stored pubkey and leaves the file alone.
     public static func open(node: String, path: String) throws -> NodeIdentity {
         if let data = FileManager.default.contents(atPath: path),
            let saved = try? JSONCoding.decode(Saved.self, from: data),
-           !saved.privateKey.isEmpty, !saved.pubkey.isEmpty,
-           let key = try? privateKey(fromPEM: saved.privateKey) {
-            return NodeIdentity(node: node, key: key)
+           !saved.privateKey.isEmpty, !saved.pubkey.isEmpty {
+            return NodeIdentity(node: node, pubkey: saved.pubkey, privatePem: saved.privateKey)
         }
         let key = Curve25519.Signing.PrivateKey()
-        let ident = NodeIdentity(node: node, key: key)
-        let saved = Saved(pubkey: ident.pubkey, privateKey: pem(for: key), createdAt: Stamp.iso())
+        let pubkey = key.publicKey.rawRepresentation.hex()
+        let privatePem = pem(for: key)
+        let saved = Saved(pubkey: pubkey, privateKey: privatePem, createdAt: Stamp.iso())
+        // BUN: `Bun.write(path, ...)` — a plain 0644 create, not atomic. Same here,
+        // deliberately: five live nodes ship that file mode and the conformance
+        // harness treats the pair as equivalent.
         try JSONCoding.encode(saved, pretty: true).write(to: URL(fileURLWithPath: path))
-        return ident
+        return NodeIdentity(node: node, pubkey: pubkey, privatePem: privatePem)
     }
 
     public var identity: Identity { Identity(node: node, pubkey: pubkey, fingerprint: fingerprint(pubkey)) }
 
     /// ed25519 over the UTF-8 message, base64url — what `FedRedeemRequest.sig` carries.
+    /// A PEM that will not parse is an empty signature (which fails verification
+    /// at the far end), matching identity.ts's throw-at-sign-time shape rather
+    /// than turning a bad file into a new key.
     public func sign(_ message: String) -> String {
-        (try? key.signature(for: Data(message.utf8)).base64url()) ?? ""
+        guard let key = try? Self.privateKey(fromPEM: privatePem) else { return "" }
+        return (try? key.signature(for: Data(message.utf8)).base64url()) ?? ""
     }
 
     // MARK: PEM ↔ CryptoKit

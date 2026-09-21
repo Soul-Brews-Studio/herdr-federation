@@ -4,6 +4,25 @@
 
 import Foundation
 
+/// `Number(env ?? fallback)` for the three numeric env vars server.ts reads.
+///
+/// An UNSET variable takes the fallback (the `?? 6750` half). A set one goes
+/// through JS `Number()`: whitespace-trimmed, `""` → 0, otherwise a decimal
+/// parse, and NaN for anything that is not a number.
+///
+/// DIVERGENCE, documented: a NaN result falls back to the default here. Bun
+/// hands NaN straight to `Bun.serve({ port: NaN })` / `setInterval(…, NaN)` and
+/// what those do was not measured, so this refuses to guess rather than invent a
+/// behaviour. 0 and a trailing-whitespace number — the two reachable cases —
+/// now match.
+func jsEnvNumber(_ raw: String?, default fallback: Int) -> Int {
+    guard let raw else { return fallback }
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if trimmed.isEmpty { return 0 }
+    guard let n = Double(trimmed), n.isFinite else { return fallback }
+    return Int(n)
+}
+
 public struct NodeEnv: Sendable {
     /// the checkout root — `join(import.meta.dir, "..")` in server.ts
     public var root: String
@@ -35,10 +54,16 @@ public struct NodeEnv: Sendable {
         identityPath = env["FED_IDENTITY"] ?? root + "/.fed-identity.json"
         membersPath = env["FED_MEMBERS"] ?? root + "/.fed-members.json"
         dist = root + "/web/dist"
-        port = Int(env["FED_PORT"] ?? "") ?? Const.defaultPort
+        // `Number(process.env.FED_PORT ?? 6750)`, not `parseInt`: JS trims
+        // surrounding whitespace, reads an EMPTY string as 0 (so `FED_PORT=`
+        // exported-but-empty binds an ephemeral port under Bun, not 6750), and
+        // gives NaN for anything else. `Int(...)` accepted none of that — a
+        // `FED_PORT="6751 "` bound 6750 here and 6751 there, which is precisely
+        // the collision the port guard exists to prevent.
+        port = jsEnvNumber(env["FED_PORT"], default: Const.defaultPort)
         host = env["FED_HOST"] ?? Const.defaultHost
-        syncMs = Int(env["FED_SYNC_MS"] ?? "") ?? Const.syncMs
-        paneMs = Int(env["FED_PANE_MS"] ?? "") ?? Const.paneMs
+        syncMs = jsEnvNumber(env["FED_SYNC_MS"], default: Const.syncMs)
+        paneMs = jsEnvNumber(env["FED_PANE_MS"], default: Const.paneMs)
         allowLegacy = (env["FED_ALLOW_LEGACY"] ?? "1") != "0"
         advertise = env["FED_ADVERTISE"]
         herdrSession = env["HERDR_SESSION"]
@@ -69,7 +94,8 @@ public func probeExistingNode(env: NodeEnv) async -> String? {
     var req = URLRequest(url: url, timeoutInterval: Double(Const.portProbeMs) / 1000)
     req.httpMethod = "GET"
     do {
-        let (data, resp) = try await URLSession.shared.data(for: req)
+        // a wall-clock deadline, like the probe's own AbortSignal.timeout(700)
+        let (data, resp) = try await fetchWithDeadline(req, timeoutMs: Const.portProbeMs)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
         let who = try? JSONCoding.decode(JSONValue.self, from: data)
         return who?["node"]?.stringValue ?? "?"
@@ -83,7 +109,10 @@ public func portGuardMessage(env: NodeEnv, servingNode: String) -> [String] {
     [
         "[fed] port \(env.port) is already serving node \"\(servingNode)\" — refusing to start a second one.",
         "[fed] Bun will share the socket rather than fail, and then your calls land on whichever process accepts them.",
-        "[fed]   use another port:  FED_PORT=\(env.port + 1) ...",
+        // BUN: server.ts:270 hardcodes 6751 — the line is wrong on any port but
+        // the default (a node refused on 6762 is told to use 6751), and it is
+        // what five live nodes print, so it is what this one prints.
+        "[fed]   use another port:  FED_PORT=6751 ...",
         "[fed]   or stop that one:  just node stop",
     ]
 }

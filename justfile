@@ -15,6 +15,7 @@ mod node   'just/01-node.just'
 mod fed    'just/02-fed.just'
 mod deploy 'just/03-deploy.just'
 mod tray   'just/04-tray.just'
+mod swift  'just/05-swift.just'
 
 default:
     @just --list
